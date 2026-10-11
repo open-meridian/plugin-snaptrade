@@ -33,7 +33,7 @@ The two link tables, each a tab of its own. See
 
 Each brokerage connection: its health and what to do about it.
 
-- **+ Add** connects a brokerage through SnapTrade's Connection Portal.
+- **Connect** connects a brokerage through SnapTrade's Connection Portal.
 - **Refresh**, in the card's header, reads SnapTrade now.
 - **Refresh** on a connection asks SnapTrade to read that brokerage again.
   Offered only where SnapTrade serves the connection from its cache; it may
@@ -83,7 +83,7 @@ whole position. A position sold from, transferred in, or changed by a split
 gets none, and says why. Nothing is sent anywhere: you carry the lots into
 an opening balance, where you check them and answer for them.
 
-### Raw responses
+### Raw records
 
 What SnapTrade answered, as received, one account at a time (choose it at
 the top). Three views:

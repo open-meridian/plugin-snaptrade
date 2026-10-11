@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
+from meridian.roles import custody
+
 #: The longest ID or name a form here takes.
 MOST_ID = 200
 
@@ -120,56 +122,65 @@ class PlanCodeRead:
 
 
 # ── Under Manage: connections and links, no account's data ─────────────────
+#
+# Each extends the custody role's common record (meridian.roles.custody), its
+# common fields first under the role's names, then SnapTrade's own.
 
 
 @dataclass(frozen=True)
-class ConnectionRead:
-    """One brokerage connection: how it is, and what to do about it."""
+class ConnectionRead(custody.ConnectionRead):
+    """One brokerage connection: the role's (its name, its state, the
+    accounts it reaches, when it was last read), then how SnapTrade serves
+    it and what to do about it."""
 
-    connection_id: str
-    name: str
-    institution: str
-    state: str
-    detail: str
-    remedy: str
-    serving: str = field(metadata={"description": "real_time, delayed, or unknown"})
-    disabled_at: str
-    accounts: int
-
-
-@dataclass(frozen=True)
-class ConnectionsRead:
-    """The SnapTrade connections the last read reached."""
-
-    read_at: str
-    mode: str
-    error: str
-    connections: list[ConnectionRead] = field(default_factory=list)
+    connection_id: str = ""
+    name: str = ""
+    institution: str = ""
+    detail: str = ""
+    remedy: str = ""
+    serving: str = field(default="", metadata={"description": "real_time, delayed, or unknown"})
+    disabled_at: str = ""
 
 
 @dataclass(frozen=True)
-class LinkRead:
-    """One external account, by its identity alone, and its link."""
+class ConnectionsRead(custody.ConnectionsRead):
+    """The role's (each credential, set or not, and each connection), then
+    the last read and the SnapTrade user this instance reads."""
 
-    external_account_id: str
-    name: str
-    institution: str
-    connection_id: str
-    number: str
-    stable: bool
-    linked: bool
-    account_id: str
-    account_name: str
+    # The role's field, its rows SnapTrade's (each extending the role's).
+    connections: list[ConnectionRead] = field(default_factory=list)  # type: ignore[assignment]
+    read_at: str = ""
+    mode: str = ""
+    error: str = ""
+    user_id: str = ""
 
 
 @dataclass(frozen=True)
-class LinksRead:
-    """The external accounts the last read reached, each linked or not; the
-    plan-code links people made; and how long each reported activity's record
-    stays in storage: its window, what is done past it, and how far back the
-    reported history reaches, within which none is deleted."""
+class ExternalAccountRead(custody.ExternalAccountRead):
+    """One external account the last read reached, by its identity alone:
+    the role's (its ID, name and where it is), then its brokerage, its
+    connection, the brokerage's number where SnapTrade gives it, and whether
+    its ID is stable."""
 
-    accounts: list[LinkRead] = field(default_factory=list)
+    institution: str = ""
+    connection_id: str = ""
+    number: str = ""
+    stable: bool = True
+
+
+@dataclass(frozen=True)
+class AccountLinksRead(custody.AccountLinksRead):
+    """The role's (the external accounts reported, the deployment's accounts
+    granted to this instance, which a deployment admin chooses, and the
+    links), then the plan-code links people made and how long each reported
+    activity's record stays in storage: its window, what is done past it,
+    and how far back the reported history reaches, within which none is
+    deleted."""
+
+    # The role's field, its rows SnapTrade's (each extending the role's).
+    external_accounts: list[ExternalAccountRead] = field(  # type: ignore[assignment]
+        default_factory=list
+    )
     plan_codes: list[PlanCodeRead] = field(default_factory=list)
     activity_window_days: int = 0
     activity_past_window: str = ""
@@ -205,30 +216,31 @@ class RowRead:
 
 
 @dataclass(frozen=True)
-class StatementRead:
-    """One account the person may read: its sync state and its last
-    statement, as the last read found them."""
+class StatementRead(custody.StatementRead):
+    """One account the person may read: the role's (the account, its
+    custodian, the day its statement is as of, and its state), then its sync
+    state's detail, the moments SnapTrade gives, what the last read recorded
+    of it, and its rows."""
 
-    account: str
-    external_account_id: str
-    name: str
-    state: str
-    detail: str
-    holdings_as_of: str
-    history_as_of: str
-    history_from: str
-    as_of_date: str
-    recorded: str
+    external_account_id: str = ""
+    name: str = ""
+    detail: str = ""
+    holdings_as_of: str = ""
+    history_as_of: str = ""
+    history_from: str = ""
+    recorded: str = ""
     rows: list[RowRead] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
-class StatementsRead:
-    """The statements of every account linked to one the person may read."""
+class StatementsRead(custody.StatementsRead):
+    """The role's (the statement of every account linked to one the person
+    may read), then when the last read was and its mode."""
 
-    read_at: str
-    mode: str
-    statements: list[StatementRead] = field(default_factory=list)
+    # The role's field, its rows SnapTrade's (each extending the role's).
+    statements: list[StatementRead] = field(default_factory=list)  # type: ignore[assignment]
+    read_at: str = ""
+    mode: str = ""
 
 
 # ── Under Open and View: the archive (contract v16) ─────────────────────────

@@ -53,7 +53,7 @@ you set a window yourself.
 
 ## 2. Connect a brokerage
 
-**Manage → Connections → + Add.** This opens SnapTrade's Connection Portal,
+**Manage → Connections → Connect.** This opens SnapTrade's Connection Portal,
 outside the dashboard. Choose the brokerage and sign in to it there:
 SnapTrade holds that sign-in, and your deployment never sees it.
 
@@ -121,8 +121,8 @@ An agent you delegate to can connect a brokerage, link accounts and read
 what you can, through the deployment's tools; the reference lists them. The
 key is entered only on the Settings form.
 
-## Synthetic mode
+## Sample data
 
-On a development deployment, **Synthetic mode** serves invented data shaped
+On a development deployment, **Sample data** (`sample_data`, 0.13's `synthetic`) serves invented data shaped
 like SnapTrade's, so the plugin can be tried before any key exists. Every
 figure it shows is invented, and its pages say so.

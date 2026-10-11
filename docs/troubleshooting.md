@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Each connection's state, and what to do, is on **Connections**; each
-account's is on **Statements**. Raw responses shows what SnapTrade actually
+account's is on **Statements**. Raw records shows what SnapTrade actually
 said.
 
 ## Settings missing
@@ -61,7 +61,7 @@ statement rather than count an asset twice. It happens when SnapTrade counts
 a fund or a deposit in the cash as well, and either gives no price for it or
 values it above the cash it is counted in.
 
-**Do:** read the account's latest answer on **Raw responses**. Nothing on
+**Do:** read the account's latest answer on **Raw records**. Nothing on
 your side fixes it; the next read that comes back clean records as usual.
 If it lasts, raise it with SnapTrade.
 
@@ -99,9 +99,9 @@ SnapTrade's. **Propose lots** on History may offer lots from the purchases;
 otherwise lots come from your own records when you complete an opening
 balance.
 
-## Raw responses not kept
+## Raw records not kept
 
-Raw responses says the responses were not kept: the plugin's storage could
+Raw records says the responses were not kept: the plugin's storage could
 not be written. What was recorded is unaffected; tell your deployment's
 admin.
 

@@ -364,7 +364,7 @@ def section_of(body: str, external_id: str) -> str:
 def test_raw_responses_is_a_tab_under_open_and_view_and_never_manage(tmp_path: Path) -> None:
     serving(store_at(tmp_path))
     declared = {page.path: (page.title, tuple(page.levels)) for page in pages.declared}
-    assert declared[RAW] == ("Raw responses", (WRITE_LEVEL, READ_LEVEL))
+    assert declared[RAW] == ("Raw records", (WRITE_LEVEL, READ_LEVEL))
     client = reader(read={"ACC-1"}, write={"ACC-1"})
     served = {(r.page.path, r.level): r.response.status for r in client.every_page()}
     assert served[(RAW, "write")] == served[(RAW, "read")] == 200
@@ -399,7 +399,7 @@ def test_a_reader_sees_the_raw_responses_of_the_accounts_they_may_read_alone(
     answer = client.get(RAW, "read")
     assert answer.status == 200
     body = answer.text
-    assert "<title>Raw responses · SnapTrade</title>" in body
+    assert "<title>Raw records · SnapTrade</title>" in body
     assert f'data-account="{ALPACA}"' in body
     for hidden in (IBKR, SCHWAB, "SYN-IB-2002", synthetic.IBKR_INDIVIDUAL, "SAP.DE"):
         assert hidden not in body
@@ -435,7 +435,7 @@ def test_the_latest_read_is_shown_formatted_with_when_and_from_which_call(
     assert '<details class="row-detail" name="calls">' in shown
     assert "&#34;units&#34;: &#34;0.012345678&#34;" in shown
     # Synthetic data says so.
-    assert "Synthetic mode: every figure here is invented" in body
+    assert "Sample data: every figure here is invented" in body
 
 
 def test_the_kept_reads_are_listed_and_each_opened(tmp_path: Path) -> None:
@@ -529,7 +529,7 @@ def test_refresh_is_offered_under_open_and_answers_with_the_tab(tmp_path: Path) 
     # Sent from the tab, which marks it as the tab it answers with.
     answer = client.post(READ, "write", {"back": RAW}, headers={"Referer": f"http://p{RAW}"})
     assert answer.status == 200 and "Reading SnapTrade now" in answer.text
-    assert "<title>Raw responses · SnapTrade</title>" in answer.text
+    assert "<title>Raw records · SnapTrade</title>" in answer.text
     assert f'data-account="{ALPACA}"' in answer.text
     answer = client.post(READ, "write", {"back": STATEMENTS})
     assert "Reading SnapTrade now" in answer.text and "data-call" not in answer.text

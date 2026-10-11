@@ -451,8 +451,8 @@ def test_the_archive_lists_each_unit_moved_and_offers_a_restore_under_open(
     assert "Restoring is under Open" in under_view and RESTORE not in under_view
     # A view of Raw responses: its tab is the one marked, and the page titled
     # as it, though the archive is a route of its own.
-    assert '<a class="tab on" href="/raw" aria-current="page">Raw responses</a>' in under_view
-    assert "<title>Raw responses · SnapTrade</title>" in under_view
+    assert '<a class="tab on" href="/raw" aria-current="page">Raw records</a>' in under_view
+    assert "<title>Raw records · SnapTrade</title>" in under_view
     under_open = client.get(RAW_ARCHIVE, "write").text
     assert f'<form method="post" action="{RESTORE}" class="inline">' in under_open
     assert '<input type="hidden" name="record_kind" value="responses">' in under_open

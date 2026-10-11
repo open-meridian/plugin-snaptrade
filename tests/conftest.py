@@ -113,6 +113,9 @@ class Sidecar(Operations):
         # hold over the instance, in days, as the deployment admin set it.
         self.moves: list[tuple[sidecar_pb2.RecordMoveRequest, str]] = []
         self.hold_days = hold_days
+        # The deployment's accounts a deployment admin granted this instance
+        # to link to (contract v20): what ReadAccountsForLinking answers.
+        self.granted: tuple[ops.AccountRecord, ...] = DEPLOYMENT_ACCOUNTS
         self.now_ns = int(NOW.timestamp()) * 1_000_000_000
         self._storage = DECLARATION.storage
         self._settings_now: dict[str, Any] | None = None
@@ -194,7 +197,8 @@ class Sidecar(Operations):
                 activity_id=self.activities[key], already_recorded=already
             )
         if name == "ReadAccountsForLinking":
-            return ops.ReadAccountsForLinkingResult(accounts=DEPLOYMENT_ACCOUNTS)
+            # The accounts granted to this instance (contract v20).
+            return ops.ReadAccountsForLinkingResult(accounts=self.granted)
         if name == "LinkExternalAccount":
             # The conductor creates a named account and links it in one step,
             # and a link replaces the one standing.

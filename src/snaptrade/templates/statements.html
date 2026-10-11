@@ -1,39 +1,33 @@
-{#- Statements, at write and read: per account the person may read, its sync
-    state, its last statement and its rows, as the last read found them.
-    Under Open, Refresh; under View, nothing to act on. -#}
-{% extends "meridian/base.html" %}
-{% import "_kit.html" as kit with context %}
-{% block status %}{{ kit.status_dot(dot) }}{% endblock %}
-{% block head_actions %}{% if level == "write" and not nothing %}{{ kit.refresh(back) }}{% endif %}{% endblock %}
-{% block content %}
-{% if nothing %}
-<section class="panel padded narrow">
-<h2>Nothing here for you</h2>
-<p>This plugin brings brokerage accounts into this deployment through SnapTrade, and you may read none of them. If you should, ask whoever administers this deployment.</p>
-</section>
-{% else %}
+{#- Statements, at write and read: the custody role's page
+    (meridian/roles/custody/statements.html) -- "Nothing here for you" to
+    somebody who may read none, the notices, then a row per account the
+    person may read: the account, its custodian, the day its statement is as
+    of, its state -- then, in its vendor section, one account's statement at
+    a time (the account's link chooses it): its sync state and its rows,
+    searched. Under Open, Refresh in the head; under View, nothing to act
+    on. `data` is records.StatementsRead, read_statements's answer. -#}
+{% extends "meridian/roles/custody/statements.html" %}
+{% import "_kit.html" as ui with context %}
+{% set what = "This plugin brings brokerage accounts into this deployment through SnapTrade" %}
+{% block status %}{{ ui.status_dot(dot) }}{% endblock %}
+{% block head_actions %}{% if level == "write" and caller.read %}{{ ui.refresh(back, caller.second_pair_of_eyes) }}{% endif %}{% endblock %}
+{% block vendor_notices %}
 {% if mode %}<div class="notice warn" role="status">{{ mode | trim }}</div>{% endif %}
-{{ kit.notices(notice) }}
-{% if failed %}
-<div class="notice warn" role="status">The last read of SnapTrade failed, so nothing is shown from it.</div>
-{% endif %}
-{% if tiles %}{{ kit.tiles(tiles) }}{% endif %}
-{% for account in statements %}
+{{ ui.notices(notice) }}
+{% if failed %}<div class="notice warn" role="status">The last read of SnapTrade failed, so nothing is shown from it.</div>{% endif %}
+{% endblock %}
+{% block vendor_columns %}
+{%- if row is none %}<th class="more"><span class="visually-hidden">Its rows</span></th>
+{%- else %}<td class="more"><a href="?account={{ row.external_account_id | urlencode }}"{% if statement and statement.external_account_id == row.external_account_id %} aria-current="true"{% endif %}>{{ row.rows | length }} rows</a></td>{% endif %}
+{% endblock %}
+{% block vendor_sections %}
+{% if statement %}{% set account = statement %}
 <section class="panel" data-account="{{ account.external_account_id }}">
-<div class="list-row"><div class="grow">
-<div class="row"><span class="title">{{ account.name }}</span> {{ kit.badge(account.badge) }}</div>
-<div class="meta">{{ account.where }}</div>
-<div class="meta">Holdings as of {{ kit.when(account.holdings_as_of) }} · history as of {{ kit.when(account.history_as_of) }}</div>
-<div class="meta">
-{%- if account.as_of_date %}Last statement as of {{ account.as_of_date }}: {% if account.ink %}<span class="{{ account.ink }}">{{ account.recorded }}</span>{% else %}{{ account.recorded }}{% endif %}
-{%- else %}No statement on the last read: {{ account.recorded | lower }}{% endif -%}
-</div>
-{% for line in account.said %}<span class="hint">{{ line }}</span>{% endfor %}
-</div></div>
-{{ kit.grid(account.grid, columns, "key") }}
+<div class="panel-body"><div class="row one-line"><span class="title">{{ account.name }}</span> {{ ui.badge(account.badge) }} <span class="meta">{{ account.where }}</span></div>
+<p class="meta one-line wide-only">Holdings as of {{ ui.when(account.holdings_as_of) }} · history as of {{ ui.when(account.history_as_of) }} ·
+{% if account.as_of_date %}last statement as of {{ account.as_of_date }}: {% if account.ink %}<span class="{{ account.ink }}">{{ account.recorded }}</span>{% else %}{{ account.recorded }}{% endif %}{% else %}no statement on the last read: {{ account.recorded | lower }}{% endif %}</p>
+{% for line in account.said %}<p class="hint wide-only" title="{{ line }}">{{ line }}</p>{% endfor %}</div>
+{{ ui.grid(account.grid, columns, "key") }}
 </section>
-{% else %}
-<section class="panel"><div class="empty-state"><strong>No statements yet</strong><p>None of the accounts you may read has come through SnapTrade here yet. An account appears once it is linked to yours.</p></div></section>
-{% endfor %}
 {% endif %}
 {% endblock %}

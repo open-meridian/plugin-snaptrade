@@ -242,10 +242,15 @@ def page_for(
     raw: RawStore | None = None,
 ) -> str:
     """The page at `path` as its view serves `caller`, from `status` and the
-    links `scope` holds, with no server."""
+    links `scope` holds, with no server; a query after `?` goes along."""
     holding(status, scope, offered, raw)
+    path, _, query = path.partition("?")
     request = meridian.Request(
-        "GET", path, meridian.Caller.from_header(caller), Sidecar().plugin()
+        "GET",
+        path,
+        meridian.Caller.from_header(caller),
+        Sidecar().plugin(),
+        query=dict(part.split("=", 1) for part in query.split("&") if "=" in part),
     )
     answer = asyncio.run(pages.dispatch(request))
     assert answer.status == 200, answer.text
@@ -297,7 +302,7 @@ def test_each_page_is_declared_once_with_the_levels_it_serves() -> None:
         (ACCOUNTS, "Account links", (ADMIN_LEVEL,)),
         (STATEMENTS, "Statements", (WRITE_LEVEL, READ_LEVEL)),
         (HISTORY, "History", (WRITE_LEVEL, READ_LEVEL)),
-        (RAW, "Raw responses", (WRITE_LEVEL, READ_LEVEL)),
+        (RAW, "Raw records", (WRITE_LEVEL, READ_LEVEL)),
     ]
     # What registration sends: one list, the actions not among its tabs.
     declared = meridian.Interface(port=8000, title=TITLE, pages=pages)._declared()
@@ -380,7 +385,7 @@ def test_the_connections_tab(server: int) -> None:
         "Schwab",
         "Delayed by design",
         "Needs sign-in",
-        ">+ Add</button>",
+        ">Connect</button>",
         "synthetic-user",
     ):
         assert shown in body
@@ -389,7 +394,7 @@ def test_the_connections_tab(server: int) -> None:
     assert head_of(body).count("<om-status ") == 1
     assert (
         "<om-status data-om-header "
-        'state="ok" label="Synthetic mode: built-in responses, not SnapTrade" '
+        'state="ok" label="Sample data: built-in responses, not SnapTrade" '
         'at="2026-09-28T15:00:00+00:00" at-label="Last read">' in body
     )
 
@@ -398,17 +403,20 @@ def test_the_connections_tab_has_no_tiles_but_its_card_rows_and_actions(
     server: int, sidecar: Sidecar
 ) -> None:
     """Connections, Accounts reached and Last read are the plugin's figures on
-    the Summary core draws (sync.figures), not tiles here; the card, its
-    rows and their actions stay."""
+    the Summary core draws (sync.figures), not tiles here; the custody role's
+    "Connections" section, a row per connection with its accounts reached
+    and when it was read, and SnapTrade's actions on each row."""
     _, _, body = ask(server, "GET", CONNECTIONS, MANAGER)
     assert 'class="tiles"' not in body and "tile-label" not in body
-    assert "Accounts reached" not in body and "needs attention" not in body
-    # The card: its heading, Refresh beside + Add, and a row per connection,
-    # Schwab's, needing sign-in, led to Reconnect.
+    # The role's section: its heading, its columns, a row per connection,
+    # Schwab's, needing sign-in, led to Reconnect; Refresh and Connect in the
+    # head.
     assert "<h2>Connections</h2>" in body
-    assert ">Refresh</button>" in body and ">+ Add</button>" in body
-    assert body.count('<div class="list-row">') == 4
-    assert '<button class="primary">Reconnect</button>' in body
+    for column in ("Connection", "State", "Accounts reached", "Last read"):
+        assert f">{column}</th>" in body
+    assert ">Refresh</button>" in body and ">Connect</button>" in body
+    assert body.count('<td class="actions">') == 4
+    assert '<button class="small primary" aria-label="Reconnect' in body
     assert "Holdings read" not in body and "statement" not in body
     # What the page no longer shows went on the heartbeat with the read.
     (beat,) = sidecar.heartbeats
@@ -422,7 +430,8 @@ def test_the_connections_tab_has_no_tiles_but_its_card_rows_and_actions(
 def test_the_accounts_tab(server: int, sidecar: Sidecar) -> None:
     status, _, body = ask(server, "GET", ACCOUNTS, MANAGER)
     assert status == 200
-    assert "Link each account" in body and ALPACA in body and "no stable ID" in body
+    assert "Each account SnapTrade reaches is recorded" in body
+    assert ALPACA in body and "no stable ID" in body
     assert "om-grid" not in body
     assert (
         f'<om-account-map action="{LINK}" token-name="csrf" token="{token_of(MANAGER)}"' in body
@@ -519,7 +528,7 @@ def test_a_reader_sees_only_the_accounts_they_may_read(server: int, sidecar: Sid
     # ACC-1's account: its sync state, its last statement and its rows.
     shown = statement_of(body, ALPACA)
     assert "Alpaca Margin" in shown and '<span class="badge good">Current</span>' in shown
-    assert "Last statement as of 2026-09-28" in shown
+    assert "last statement as of 2026-09-28" in shown
     assert 'om-grid id="rows-0"' in shown and "<code>AAPL</code>" in shown
     # Not ACC-3's, which they may not read, nor one nothing links.
     assert IBKR not in body and "IBKR Individual" not in body
@@ -594,7 +603,7 @@ def test_an_account_nothing_links_is_not_shown_to_a_reader(server: int) -> None:
     # plugin's account scope does, and it names none.
     status, _, body = ask(server, "GET", STATEMENTS, READER)
     assert status == 200 and "No statements yet" in body
-    assert "An account appears once it is linked to yours." in body
+    assert "An account appears once it is linked, under Account links." in body
     for name in NAMES:
         assert name not in body
     assert "om-grid" not in body
@@ -624,7 +633,7 @@ def test_synthetic_data_says_so_to_whoever_reads_it(loop: asyncio.AbstractEventL
     sidecar, syncer = started_with(HELD, loop)
     with serving(syncer, sidecar, loop) as port:
         _, _, body = ask(port, "GET", STATEMENTS, READER)
-    assert "Synthetic mode: every figure here is invented" in body
+    assert "Sample data: every figure here is invented" in body
 
 
 def test_the_frames_theme_on_the_query_does_not_change_what_is_served(server: int) -> None:
@@ -676,7 +685,7 @@ def test_the_connections_actions_answer_with_the_pages_token(
 ) -> None:
     token = token_of(MANAGER)
     status, _, body = ask(server, "POST", CONNECT, MANAGER, form(csrf=token))
-    assert status == 200 and "Synthetic mode has no Connection Portal" in body
+    assert status == 200 and "Sample data has no Connection Portal" in body
     # The one SnapTrade serves on a delay: a refresh applies to it.
     known = synthetic.IBKR
     status, _, body = ask(
@@ -686,7 +695,7 @@ def test_the_connections_actions_answer_with_the_pages_token(
     status, _, body = ask(
         server, "POST", RECONNECT, MANAGER, form(csrf=token, connection_id=known)
     )
-    assert status == 200 and "Synthetic mode has no Connection Portal" in body
+    assert status == 200 and "Sample data has no Connection Portal" in body
     assert recording.asked == ["portal None", f"refresh {known}", f"portal {known}"]
     assert tokens_on(body) == {token}
     for path in (REFRESH, RECONNECT):
@@ -699,12 +708,15 @@ def test_the_connections_actions_answer_with_the_pages_token(
 def refresh_button(connection_id: str) -> str:
     return (
         f'<input type="hidden" name="connection_id" value="{connection_id}">'
-        "<button>Refresh</button>"
+        '<button class="small" aria-label="Refresh '
     )
 
 
 def reconnect_button(connection_id: str) -> str:
-    return f'<input type="hidden" name="connection_id" value="{connection_id}"><button'
+    return (
+        f'<input type="hidden" name="connection_id" value="{connection_id}">'
+        '<button class="small'
+    )
 
 
 def test_refresh_is_offered_only_where_snaptrade_serves_on_a_delay(server: int) -> None:
@@ -720,8 +732,8 @@ def test_refresh_is_offered_only_where_snaptrade_serves_on_a_delay(server: int) 
     assert body.count(REAL_TIME) == 3
     # Reconnecting is offered to each; it leads where the connection is disabled.
     for key in (synthetic.ALPACA, synthetic.IBKR):
-        assert f"{reconnect_button(key)}>Reconnect</button>" in body
-    assert f'{reconnect_button(synthetic.SCHWAB)} class="primary">Reconnect</button>' in body
+        assert f'{reconnect_button(key)}" aria-label="Reconnect' in body
+    assert f'{reconnect_button(synthetic.SCHWAB)} primary" aria-label="Reconnect' in body
 
 
 @pytest.mark.parametrize(
@@ -741,7 +753,7 @@ def test_the_refresh_button_follows_how_snaptrade_serves_the_connection(
     )
     shown = page_for(Status(mode="snaptrade", connections=(connection,)))
     assert (refresh_button("c1") in shown) is offered
-    assert f"{reconnect_button('c1')}>Reconnect</button>" in shown
+    assert f'{reconnect_button("c1")}" aria-label="Reconnect' in shown
     for line in (REAL_TIME, DELAYED):
         assert (line in shown) is (line == said)
 
@@ -815,7 +827,9 @@ def test_reading_now_answers_with_the_tab_it_was_asked_from(
 ) -> None:
     token = token_of(MANAGER)
     _, _, body = ask(server, "POST", READ, MANAGER, form(csrf=token, back=ACCOUNTS))
-    assert "Reading SnapTrade now" in body and "Link each account" in body
+    assert (
+        "Reading SnapTrade now" in body and "Each account SnapTrade reaches is recorded" in body
+    )
     _, _, body = ask(server, "POST", READ, MANAGER, form(csrf=token, back="/elsewhere"))
     assert "Reading SnapTrade now" in body and ADD in body
     # Under Manage, never Statements, whatever the form says.
@@ -824,8 +838,11 @@ def test_reading_now_answers_with_the_tab_it_was_asked_from(
     assert woken.is_set()
 
 
-# The Connections card's + Add, by its accessible name: shown only on Connections.
-ADD = 'aria-label="Add a brokerage connection">+ Add</button>'
+# Connections' Connect, by its accessible name: shown only on Connections.
+ADD = (
+    'aria-label="Connect a brokerage through SnapTrade&#39;s Connection Portal">'
+    "Connect</button>"
+)
 
 
 def head_of(body: str) -> str:
@@ -859,10 +876,10 @@ def refresh_form(body: str) -> tuple[str, dict[str, str]]:
 
 
 def connections_card(body: str) -> str:
-    """What the Connections card's header holds beside its heading."""
+    """What heads the Connections section: its actions (the custody role
+    template's section head, through `action`)."""
     card = re.search(
-        r'<section class="panel"><div class="panel-body"><div class="row"><h2>Connections</h2>'
-        r'<span class="spacer"></span>(.*?)</div>',
+        r'<div class="section-head"><h2>Connections</h2><div class="actions">(.*?)</div>',
         flat(body),
     )
     assert card is not None
@@ -870,7 +887,7 @@ def connections_card(body: str) -> str:
 
 
 def card_refresh_form(body: str) -> tuple[str, dict[str, str]]:
-    """The Connections card's Refresh, beside + Add: its action and fields."""
+    """Connections' Refresh, beside Connect: its action and fields."""
     forms = re.findall(
         r'<form method="post" action="([^"]+)" class="inline">(.*?)</form>',
         connections_card(body),
@@ -898,7 +915,8 @@ def test_connections_hands_the_dashboard_no_header_action(server: int) -> None:
     assert '<div class="actions">' not in head_of(body)
     action, fields = card_refresh_form(body)
     assert action == READ
-    assert fields == {"csrf": token_of(MANAGER), "back": CONNECTIONS}
+    # No `back`: a read asked under Manage answers with Connections.
+    assert fields == {"csrf": token_of(MANAGER)}
     assert body.count(f'action="{READ}"') == 1
 
 
@@ -1122,7 +1140,7 @@ def test_an_unlinked_account_offers_an_existing_account_and_a_deployment_admin_a
     assert 'name="new_account_name" required maxlength="200"' in create
     assert 'name="new_account_custodian" maxlength="200"' in create
     assert 'name="new_account_type" maxlength="200"' in create
-    assert "Link it to an existing account, or create one for it." in body
+    assert "Link it to an account granted, or create one for it." in body
     # The kit's map offers a deployment admin a new account too.
     assert "no-new-account" not in map_tag(body)
     (read,) = refusing.sent("ReadAccountsForLinking")
@@ -1162,7 +1180,7 @@ def test_a_plugin_admin_is_offered_no_new_account_and_sends_none(
     assert 'name="intent" value="create"' not in forms and "new_account_name" not in forms
     assert "a deployment admin may also create one for it" in body
     # Nor does the kit's map (kit 0.7.1): no new account anywhere in it.
-    assert " no-new-account " in map_tag(body)
+    assert re.search(r" no-new-account[ >]", map_tag(body))
     status, _, body = post_link(
         server, intent="create", external_account_id=ALPACA, new_account_name="Mine"
     )
@@ -1729,8 +1747,9 @@ def test_the_kit_is_the_one_that_draws_refresh_as_an_icon() -> None:
     # 0.8.0: a header action marked data-om-icon="refresh" drawn as a circular
     # arrow, by the dashboard beside the status dot (0.7.0's header status,
     # 0.6.0's om-status and 0.5.0's map are in it too: a 0.x release only adds).
-    # 0.10.0: one screen, one-line rows and om-pager, which Raw responses uses.
-    assert KIT == "0.10.0" and pages.kit == "/.meridian/ui/0.10.0/"
+    # 0.10.0: one screen, one-line rows and om-pager, which Raw records uses;
+    # 0.12.0: the role templates' "Facts" and "Next step".
+    assert KIT == "0.12.0" and pages.kit == "/.meridian/ui/0.12.0/"
 
 
 def grid_element(shown: str, grid_id: str) -> str:
@@ -1750,20 +1769,24 @@ def grid(shown: str, grid_id: str) -> dict[str, list[dict[str, Any]]]:
     return parsed
 
 
-def statements_of_both() -> str:
-    """Statements for a reader of both accounts the synthetic read records."""
+def statements_of_both(account: str = "") -> str:
+    """Statements for a reader of both accounts the synthetic read records:
+    the first account's statement, or `account`'s."""
     status = synthetic_status()
     both = caller_header("read", read=("ACC-1", "ACC-3"), subject="person-6")
-    return page_for(status, STATEMENTS, both, meridian.AccountScope(links=HELD))
+    path = f"{STATEMENTS}?account={account}" if account else STATEMENTS
+    return page_for(status, path, both, meridian.AccountScope(links=HELD))
 
 
 def test_each_table_is_in_the_html_until_the_kits_grid_replaces_it() -> None:
+    # One account's statement at a time (the account's link chooses it): the
+    # first's here.
     shown = statements_of_both()
-    for grid_id in ("rows-0", "rows-1"):
+    for grid_id in ("rows-0",):
         element = grid_element(shown, grid_id)
-        # Cards where it is narrow.
-        assert element.startswith(f'<om-grid id="{grid_id}" row-key="key" narrow="cards"')
-        assert "<table>" in element
+        # One line a row, searched, the rest a tap away where it is narrow.
+        assert element.startswith(f'<om-grid id="{grid_id}" row-key="key" dense one-line')
+        assert 'narrow="priority" search=' in element and "<table>" in element
         data = grid(shown, grid_id)
         # As many rows in the table a browser shows as the grid is given.
         assert element.count("<tr>") == len(data["rows"]) + 1
@@ -1834,11 +1857,11 @@ def test_each_accounts_sync_state_is_on_statements(state: SyncState, badge: str)
         links=(meridian.LinkedExternalAccount("broker:1", "ACC-1", "Household"),)
     )
     shown = statement_of(page_for(status, STATEMENTS, READER, scope), "broker:1")
-    assert badge in shown and '<span class="hint">Said by SnapTrade.</span>' in shown
+    assert badge in shown and ">Said by SnapTrade.</p>" in shown
     # No moment reported: said so, never guessed.
     assert shown.count('<span class="faint">not reported</span>') == 2
     # Nothing recorded on the last read.
-    assert "No statement on the last read: nothing recorded" in shown
+    assert "no statement on the last read: nothing recorded" in shown
 
 
 def test_a_connection_whose_holdings_are_unavailable_says_to_connect_another_way() -> None:
@@ -1854,7 +1877,7 @@ def test_a_connection_whose_holdings_are_unavailable_says_to_connect_another_way
         None,
     )
     shown = page_for(Status(mode="snaptrade", connections=(connection,)))
-    assert '<span class="badge bad">Holdings unavailable</span>' in shown
+    assert "<td>Holdings unavailable</td>" in shown
     assert "Connect the account another way, or through another venue" in shown
     assert "Usually SnapTrade's to recover" not in shown
 
@@ -1866,18 +1889,19 @@ def test_a_stopped_statement_is_toned_bad_on_statements() -> None:
     shown = page_for(status, STATEMENTS, READER, meridian.AccountScope(links=HELD))
     alpaca = statement_of(shown, ALPACA)
     assert '<span class="bad-ink">Stopped at 1 of 3 rows</span>' in alpaca
-    assert '<span class="hint">RecordHolding: refused: no.</span>' in alpaca
+    assert ">RecordHolding: refused: no.</p>" in alpaca
 
 
 def test_quantities_are_exact_decimal_strings_as_read() -> None:
     shown = statements_of_both()
-    rows = [row for index in range(2) for row in grid(shown, f"rows-{index}")["rows"]]
+    other = statements_of_both(IBKR)
+    rows = grid(shown, "rows-0")["rows"] + grid(other, "rows-1")["rows"]
     quantities = {row["instrument"]: row["quantity"] for row in rows}
     assert all(isinstance(quantity, str) for quantity in quantities.values())
     # Crypto to nine decimals, a short, and cash as SnapTrade gave it.
     assert "0.012345678" in quantities.values() and "-40" in quantities.values()
     assert "200.00" in quantities.values()
-    assert '<td class="num">0.012345678</td>' in shown
+    assert '<td class="num">0.012345678</td>' in shown + other
 
 
 def test_the_declared_json_cannot_close_its_script() -> None:
@@ -1946,8 +1970,8 @@ def status_dot(body: str) -> str:
         (
             Status(mode="synthetic", read_at=READ_AT),
             "<om-status data-om-header "
-            'state="ok" label="Synthetic mode: built-in responses, not SnapTrade" '
-            'at="2026-09-30T13:12:00+00:00" at-label="Last read">Synthetic mode: built-in '
+            'state="ok" label="Sample data: built-in responses, not SnapTrade" '
+            'at="2026-09-30T13:12:00+00:00" at-label="Last read">Sample data: built-in '
             "responses, not SnapTrade. Last read 2026-09-30 13:12 UTC.</om-status>",
         ),
         (
@@ -1965,8 +1989,8 @@ def status_dot(body: str) -> str:
         (
             Status(mode="synthetic", reading=True),
             "<om-status data-om-header "
-            'state="busy" label="Synthetic mode: reading built-in responses, '
-            'not SnapTrade">Synthetic mode: reading built-in responses, not SnapTrade.'
+            'state="busy" label="Sample data: reading built-in responses, '
+            'not SnapTrade">Sample data: reading built-in responses, not SnapTrade.'
             "</om-status>",
         ),
         (
@@ -2079,15 +2103,12 @@ def test_add_and_refresh_are_the_connections_cards_actions_with_their_forms_and_
     head = head_of(body)
     assert f'action="{CONNECT}"' not in head and f'action="{READ}"' not in head
     assert "<button" not in head
-    assert "Connect a brokerage" not in body and "Add brokerage" not in body
-    # Side by side in the Connections card's own header, beside its heading:
-    # Refresh, the kit's plain button, then + Add, its primary one, named for
-    # what it adds.
+    # Side by side heading the Connections section: Refresh, the kit's plain
+    # button, then Connect, its primary one, named for what it does.
     token = token_of(MANAGER)
     assert connections_card(body) == (
         f'<form method="post" action="{READ}" class="inline">'
         f'<input type="hidden" name="csrf" value="{token}">'
-        f'<input type="hidden" name="back" value="{CONNECTIONS}">'
         '<button aria-label="Refresh everything from SnapTrade">Refresh</button></form>'
         f'<form method="post" action="{CONNECT}" class="inline">'
         f'<input type="hidden" name="csrf" value="{token}">'

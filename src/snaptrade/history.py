@@ -58,6 +58,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+from meridian.roles import custody
+
 from .normalise import Holding, Side, to_decimal
 from .raw import activities_call, activities_failed
 from .venue import MOST_PER_PAGE, Json, Venue, VenueError
@@ -168,27 +170,45 @@ class Activity:
 
 
 @dataclass(frozen=True)
-class Activities:
-    """A page of an account's activities over a range, as SnapTrade reports
-    them, with how far back its history goes and the raw record kept."""
+class ActivityRead(custody.ActivityRead):
+    """One activity as History shows it: the custody role's (the account,
+    the activity's ID, its kind, its dates, the instrument as SnapTrade names
+    it -- its symbol, or an option's ticker -- its units, its amount and its
+    description), then SnapTrade's own, every number as written, empty where
+    it gave none."""
 
-    account: str
-    external_account_id: str
-    connection: str
+    type: str = ""
+    price: str = ""
+    fee: str = ""
+    currency: str = ""
+
+
+@dataclass(frozen=True)
+class Activities(custody.HistoryRead):
+    """A page of an account's activities over a range: the custody role's
+    (each activity, as History shows it), then which account and connection,
+    how far back its history goes, the range and page read, and the raw
+    record kept."""
+
+    activities: list[ActivityRead] = field(default_factory=list)  # type: ignore[assignment]
+    account: str = ""
+    external_account_id: str = ""
+    connection: str = ""
     history_from: str = field(
+        default="",
         metadata={
             "description": "the account's first transaction SnapTrade holds "
             "(first_transaction_date), as reported; empty where it says none"
-        }
+        },
     )
-    start: date
-    end: date
-    offset: int
-    limit: int
+    start: date | None = None
+    end: date | None = None
+    offset: int = 0
+    limit: int = 0
     total: int | None = field(
-        metadata={"description": "how many the range holds, as SnapTrade says; null where not"}
+        default=None,
+        metadata={"description": "how many the range holds, as SnapTrade says; null where not"},
     )
-    activities: list[Activity] = field(default_factory=list)
     raw_record: str = ""
     said: str = ""
 
@@ -297,6 +317,31 @@ def activity(given: Json) -> Activity:
         amount=_number(given.get("amount")),
         fee=_number(given.get("fee")),
         currency=_text(_dict(currency).get("code") if isinstance(currency, dict) else currency),
+    )
+
+
+def _plain(value: Decimal | None) -> str:
+    return "" if value is None else format(value, "f")
+
+
+def read_of(account: str, given: Activity, kind: str = "") -> ActivityRead:
+    """An activity as History shows it, in the custody role's words: its
+    kind as it converts (`kind`, the custodial activity's), else SnapTrade's
+    type as reported."""
+    return ActivityRead(
+        account=account,
+        external_activity_id=given.id,
+        kind=kind or given.type,
+        trade_date=given.trade_date[:10],
+        settlement_date=given.settlement_date[:10],
+        instrument_id=given.option_symbol or given.symbol,
+        units=_plain(given.units),
+        amount=_plain(given.amount),
+        description=given.description,
+        type=given.type,
+        price=_plain(given.price),
+        fee=_plain(given.fee),
+        currency=given.currency,
     )
 
 

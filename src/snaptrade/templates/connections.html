@@ -1,48 +1,30 @@
-{#- Connections, at admin: the brokerages connected through SnapTrade, how
-    each is, and the SnapTrade user they belong to. Configuration only: no
-    account's data. -#}
-{% extends "meridian/base.html" %}
-{% import "_kit.html" as kit with context %}
-{% block status %}{{ kit.status_dot(dot) }}{% endblock %}
-{% block content %}
-{{ kit.notices(notice, portal, waiting, error) }}
-<section class="panel">
-<div class="panel-body"><div class="row"><h2>Connections</h2><span class="spacer"></span>
-{#- Connecting a brokerage and reading SnapTrade now are the Connections
-    card's own actions, side by side in its header, not the page head's (the
-    product owner, 2026-09-30): so this page hands the dashboard no header
-    action. -#}
-{{ kit.refresh(back, header=false) }}
-{{ kit.button(paths.connect, "+ Add", "primary", label="Add a brokerage connection") }}</div>
-<p class="muted">Each brokerage connected through SnapTrade, and how it is.</p></div>
-{% for connection in connections %}
-<div class="list-row"><div class="grow">
-<div class="row"><span class="title">{{ connection.institution }}</span> {{ kit.badge(connection.badge) }}</div>
-<div class="meta">{{ connection.meta }}</div>
-{% if connection.said %}<span class="hint">{{ connection.said }}</span>{% endif %}
-{% if connection.refreshing %}<span class="hint">{{ connection.refreshing }}</span>{% endif %}
-</div>
-{% if connection.refresh %}{{ kit.button(paths.refresh, "Refresh", fields={"connection_id": connection.connection_id}) }}{% endif %}
-{{ kit.button(paths.reconnect, "Reconnect", connection.reconnect, fields={"connection_id": connection.connection_id}) }}
-</div>
-{% else %}
-<div class="empty-state"><strong>No brokerage connections yet</strong><p>Connect one through SnapTrade's Connection Portal to begin.</p></div>
-{% endfor %}
-</section>
+{#- Connections, at admin: the custody role's page
+    (meridian/roles/custody/connections.html) -- "No credentials yet" where
+    none is set, the notices, then "Connections", a row each: the
+    connection, its state, the accounts it reaches and when it was read --
+    with SnapTrade's own beside it: what to do about a connection, Refresh
+    and Reconnect on its row as SnapTrade allows, Refresh and Connect (its
+    Connection Portal) in the section's head through the template's
+    `action` (Prepare where an act's second pair of eyes is on), and the SnapTrade user section.
+    Configuration only: no account's data. `data` is
+    records.ConnectionsRead, read_connections's answer. -#}
+{% extends "meridian/roles/custody/connections.html" %}
+{% import "_kit.html" as ui with context %}
+{% block status %}{{ ui.status_dot(dot) }}{% endblock %}
+{% block vendor_notices %}{{ ui.notices(notice, portal, waiting, error) }}{% endblock %}
+{% block vendor_columns %}
+{%- if row is none %}<th class="wide-only">What to do</th><th class="actions"><span class="visually-hidden">Actions</span></th>
+{%- else %}{% set it = shown[row.connection_id] %}<td class="wide-only"><span class="hint">{{ it.said }}{% if it.said and it.refreshing %} {% endif %}{{ it.refreshing }}</span></td><td class="actions">
+{#- On a phone a row keeps Reconnect; a delayed connection's Refresh is
+    the wide screen's (the section head's Refresh reads every one). -#}
+{%- if it.refresh %}<span class="wide-only">{{ ui.act(paths.refresh, "Refresh", "refresh_connection", caller.second_pair_of_eyes, "small", fields={"connection_id": row.connection_id}, label="Refresh " ~ row.connection) }}</span>{% endif %}
+{{ ui.act(paths.reconnect, "Reconnect", "reconnect_connection", caller.second_pair_of_eyes, ("small " ~ it.reconnect)|trim, fields={"connection_id": row.connection_id}, label="Reconnect " ~ row.connection) }}</td>
+{%- endif %}
+{% endblock %}
+{% block vendor_sections %}
 <section class="panel padded">
 <h2>SnapTrade user</h2>
-{% if user_id %}
-<p>This instance reads the brokerage connections of <code>{{ user_id }}</code>.</p>
-{% else %}
-<p class="muted">No SnapTrade user is set, as with a personal key.</p>
-{% endif %}
-<p class="hint">Users registered under this key:</p>
-<ul class="plain">
-{% for user in users %}
-<li><code>{{ user }}</code>{% if user == user_id %} <span class="badge accent">this instance</span>{% endif %}</li>
-{% else %}
-<li class="faint">None listed.</li>
-{% endfor %}
-</ul>
+<p class="one-line">{% if data.user_id %}This instance reads the brokerage connections of <code>{{ data.user_id }}</code>.{% else %}<span class="muted">No SnapTrade user is set, as with a personal key.</span>{% endif %}
+<span class="hint">Users under this key: {% for user in users %}<code>{{ user }}</code>{% if user == data.user_id %} (this instance){% endif %}{% if not loop.last %}, {% endif %}{% else %}none listed{% endfor %}.</span></p>
 </section>
 {% endblock %}

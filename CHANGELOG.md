@@ -3,6 +3,72 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
+## 0.14.0 (not released)
+
+Contract v20, on open-meridian 0.24.0 (meridian-design plans/an-agents-
+prepared-change-waits-for-the-person; spec/plugin-pages-follow-their-role,
+accepted 2026-10-10).
+
+- **The pins**: `meridian plugin migrate --to 0.24.0` moved them and had
+  nothing to rewrite; the plugin holds `custody`, which kept its name.
+- **The custody role's common pages** (`meridian.roles.custody`), each
+  extending the SDK's role template, SnapTrade's nuance only in its blocks:
+  - **Connections**: "No credentials yet" until one is set; the role's
+    "Connections" section, a row each -- the connection, its state, the
+    accounts it reaches, when it was read -- with what to do and Refresh and
+    Reconnect on its row as SnapTrade allows (on a phone a row keeps
+    Reconnect); **Connect** (was "+ Add") and Refresh in the section's head
+    through the template's `action`, each drawn as Prepare under its act's
+    second pair of eyes; the SnapTrade user below. Refresh posts no `back`:
+    under Manage a read answers with Connections.
+    `read_connections` answers the role's fields first (`credentials`, each
+    set or not, never a value; each connection's `connection`, `state`,
+    `accounts_reached`, `last_read`), SnapTrade's beside them (`accounts`
+    is `accounts_reached` now).
+  - **Account links**: "No accounts granted yet" until a deployment admin
+    grants this instance accounts (contract v20, W6.30); the kit's account
+    map through the template's approved options -- grouped by connection,
+    several links at once, no new account for a plugin admin who is not a
+    deployment admin -- the plain forms inside it. `read_account_links`
+    answers the role's `external_accounts`, `accounts` (those granted) and
+    `links`, then the plan-code links and the activity window.
+  - **Statements**: the role's row per account the person may read (account,
+    custodian, as of, state), one account's statement at a time below it,
+    its rows searched (`as_of_date` is `as_of` in `read_statements`).
+  - **History**: the role's columns -- Account, Trade date, Settlement date,
+    Kind, Instrument, Units, Amount, Description -- SnapTrade's price and
+    currency beside them, "No activity yet" where the range holds none; the
+    first account the person may read where none is chosen.
+    `read_account_activities` answers each activity in the role's
+    `ActivityRead` words (`external_activity_id`, `kind` as it converts,
+    `instrument_id` as SnapTrade names it, numbers as written).
+  - **Raw records** (was "Raw responses"): the role's section -- each kind,
+    its window as set, what becomes of it past the window, how many in
+    storage -- then SnapTrade's reads, kept reads and archive. Its path and
+    tools are unchanged.
+- **The role's settings, in its order**: Client ID, Consumer key; Read
+  every, Stale after (the SDK's helpers); Key type with the user it reads
+  gated on it, Plan-code links, Cash links; and last the developer's.
+  `synthetic` is `sample_data` (`meridian.sample_data()`, ruled 2026-10-02):
+  a value saved under the old name is not delivered, so a development
+  deployment turns Sample data on again.
+- **The role's figures** through `custody.figures(...)`: the same three.
+- **Linking only to accounts granted**: a link the sidecar refuses as
+  REFUSAL_REASON_ACCOUNT_NOT_LINKABLE is said plainly, and refused to a
+  tool by `account_id`, reason `account_not_linkable`.
+- **Every act preparable** (approved names): `open_connection_portal`,
+  `refresh_connection`, `reconnect_connection`, `read_snaptrade_now` and
+  `link_account` each name their check -- `check_open_connection_portal`,
+  `check_refresh_connection`, `check_reconnect_connection`,
+  `check_snaptrade_now`, `check_link_account` -- a read taking the act's
+  record and asking nothing of SnapTrade or the sidecar that changes
+  anything; `link_account` names the account it touches. Where an act's
+  second pair of eyes is on for the person, its button prepares it instead
+  ("Prepare Refresh", "Prepare Connect"), and the plain link forms offer
+  Prepare beside Link. A page opened from a prepared change says what it
+  asks, "prepared by" its preparer, with their reason.
+- Kit 0.12.0.
+
 ## 0.13.1 (not released)
 
 Contract v18, on open-meridian 0.22.0 (meridian-design

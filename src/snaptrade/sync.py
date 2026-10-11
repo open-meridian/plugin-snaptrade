@@ -39,6 +39,7 @@ from datetime import date, datetime
 
 import meridian
 from meridian.bounds import PLUGIN_FIGURE_WHY_LENGTH
+from meridian.roles import custody
 
 from .activities import Converted, PlanCodeLink, convert
 from .archive import Keeper, Tended
@@ -141,7 +142,11 @@ def figures(status: Status) -> list[meridian.Figure]:
         )
     else:
         last = meridian.Figure("Last read", status.read_at or "Not yet")
-    return [connections, meridian.Figure("Accounts reached", len(status.accounts)), last]
+    # The custody role's figures, in its order and under its labels
+    # (meridian.roles.custody.figures).
+    return custody.figures(
+        connections=connections, accounts_reached=len(status.accounts), last_read=last
+    )
 
 
 def venue_for(config: Config, now: Callable[[], datetime] = utc_now) -> Venue | None:

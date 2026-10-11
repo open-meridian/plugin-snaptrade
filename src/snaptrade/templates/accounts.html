@@ -1,12 +1,18 @@
-{#- Account links, at admin: each account the connections reach, linked to one
-    of the deployment's here, and a line on what the plugin's settings hold
+{#- Account links, at admin: the custody role's page
+    (meridian/roles/custody/account_links.html) -- "No accounts granted yet"
+    until a deployment admin grants this plugin accounts to link to (contract
+    v20), then the kit's account map: each account the connections reach,
+    grouped by connection, linked to one of the accounts granted, several at
+    once, a new account offered to a deployment admin alone -- with SnapTrade's
+    plain forms inside it for a browser without the kit, and a line on what
+    the plugin's settings hold
     (its plan-code links, its cash links, how long activity records are
     kept), which only the dashboard's Settings form sets; this page shows
     them. Under Manage, an account's identity and
     its link only: nothing SnapTrade read for it, no sync state, statement or
     rows. -#}
-{% extends "meridian/base.html" %}
-{% import "_kit.html" as kit with context %}
+{% extends "meridian/roles/custody/account_links.html" %}
+{% import "_kit.html" as ui with context %}
 {% set empty = "No accounts yet: they appear here once SnapTrade is read." %}
 
 {#- A plain form for the map's `intent`, posted to the map's one route with the
@@ -23,27 +29,25 @@
 </select></label>
 {%- endmacro %}
 
-{% block status %}{{ kit.status_dot(dot) }}{% endblock %}
-{% block content %}
-{{ kit.notices(notice, none, waiting, error) }}
+{% block status %}{{ ui.status_dot(dot) }}{% endblock %}
+{% block vendor_notices %}
+{{ ui.notices(notice, none, waiting, error) }}
 {% if refused %}
 <div class="notice bad" role="alert">The deployment's accounts could not be read: {{ refused }}</div>
 {% endif %}
-<section class="panel">
-<div class="panel-body"><h2>Link each account</h2>
-<p class="muted">Each account SnapTrade reaches is recorded against the deployment's account it is linked to, and one nothing links is not recorded. Each of the deployment's accounts takes one at most, so one already linked is not offered for another.
-{%- if creates %} Link it to an existing account, or create one for it.{% else %} Link it to an existing account; a deployment admin may also create one for it.{% endif %}
-{%- if summary %} {{ summary }}.{% endif %}</p></div>
-<om-account-map action="{{ paths.link }}" token-name="{{ token_name }}" token="{{ csrf_token }}" group-by="connection" link-several{% if not creates %} no-new-account{% endif %} empty="{{ empty }}">
-<script type="application/json">{{ map | tojson }}</script>
+<p class="muted wide-only" title="Each account SnapTrade reaches is recorded against the deployment's account it is linked to, and one nothing links is not recorded. Each of the deployment's accounts takes one at most.">Each account SnapTrade reaches is recorded against the account it is linked to; one nothing links is not recorded.
+{%- if creates %} Link it to an account granted, or create one for it.{% else %} Link it to an account granted; a deployment admin may also create one for it.{% endif %}
+{%- if summary %} {{ summary }}.{% endif %}</p>
+{% endblock %}
+{% block vendor_rows %}
 {% for row in rows %}
 <div class="list-row" data-account="{{ row.external_account_id }}"><div class="grow">
-<div class="row"><span class="title">{{ row.name }}</span> {{ kit.badge(row.link) }}</div>
+<div class="row"><span class="title">{{ row.name }}</span> {{ ui.badge(row.link) }}</div>
 <div class="meta">{{ row.where }}{% if row.number %} · No. {{ row.number }}{% endif %} · <code>{{ row.external_account_id }}</code></div>
 {% if row.linked %}<span class="hint">Linked to {{ row.account_name }} (<code>{{ row.account_id }}</code>).</span>{% endif %}
 {% if row.note %}<span class="hint">{{ row.note }}</span>{% endif %}
 </div>
-{% if row.linked %}{% call intent_form("unlink", row.external_account_id, "inline") %}<button class="danger">Unlink</button>{% endcall %}{% endif %}
+{% if row.linked %}{% call intent_form("unlink", row.external_account_id, "inline") %}{% if gated %}<button name="prepare" value="1">Prepare unlinking</button>{% else %}<button class="danger">Unlink</button>{% endif %}{% endcall %}{% endif %}
 </div>
 {% endfor %}
 {% if rows %}
@@ -56,17 +60,18 @@
 {% else %}
 {% call intent_form("link") %}<div class="field-row">{{ external_choice() }}<label class="field"><span>An existing account</span><select name="account_id" required><option value="">Choose an account</option>
 {%- for choice in choices %}<option value="{{ choice.account_id }}">{{ choice.label }}</option>{% endfor -%}
-</select></label><button>Link</button></div>{% endcall %}
+</select></label>{% if gated %}<button name="prepare" value="1">Prepare</button>{% else %}<button>Link</button> <button name="prepare" value="1">Prepare</button>{% endif %}</div>{% endcall %}
 {% endif %}
 {% if creates %}
 <h3>Create an account for one, and link it</h3>
-{% call intent_form("create") %}<div class="field-row">{{ external_choice() }}<label class="field"><span>A new account</span><input type="text" name="new_account_name" required maxlength="{{ most_name }}"></label><label class="field"><span>Custodian</span><input type="text" name="new_account_custodian" maxlength="{{ most_name }}"></label><label class="field"><span>Type</span><input type="text" name="new_account_type" maxlength="{{ most_name }}"></label><button class="primary">Create and link</button></div>{% endcall %}
+{% call intent_form("create") %}<div class="field-row">{{ external_choice() }}<label class="field"><span>A new account</span><input type="text" name="new_account_name" required maxlength="{{ most_name }}"></label><label class="field"><span>Custodian</span><input type="text" name="new_account_custodian" maxlength="{{ most_name }}"></label><label class="field"><span>Type</span><input type="text" name="new_account_type" maxlength="{{ most_name }}"></label>{% if gated %}<button name="prepare" value="1">Prepare</button>{% else %}<button class="primary">Create and link</button> <button name="prepare" value="1">Prepare</button>{% endif %}</div>{% endcall %}
 {% endif %}
 </div>
 {% else %}
 <div class="empty-state"><strong>{{ empty }}</strong></div>
 {% endif %}
-</om-account-map>
-</section>
+{% endblock %}
+
+{% block vendor_sections %}
 <p class="hint one-line">Set in the plugin's Settings, in the dashboard: {{ settings_said.plan_codes }} plan-code {{ "link" if settings_said.plan_codes == 1 else "links" }}; {{ settings_said.counted_as_cash }} cash {{ "link" if settings_said.counted_as_cash == 1 else "links" }}; each activity's record in storage {{ settings_said.activity_window_days }} days, then {{ settings_said.activity_past_window }}{% if settings_said.activity_past_window == "deleted" and settings_said.history_reach_days > settings_said.activity_window_days %}, never within the {{ settings_said.history_reach_days }} days the history SnapTrade reported reaches back{% endif %}.</p>
 {% endblock %}

@@ -24,13 +24,23 @@
 <button{% if kind %} class="{{ kind }}"{% endif %}{% if label %} aria-label="{{ label }}"{% endif %}{% if header %} data-om-action="{{ header }}"{% endif %}{% if icon %} data-om-icon="{{ icon }}" title="{{ label or said }}"{% endif %}>{{ said }}</button></form>
 {%- endmacro %}
 
-{# Read SnapTrade now, answering with `back`. In the head (`header`), the
-   page's one header action, the kit's circular-arrow icon, which the
-   dashboard draws beside the status dot (the product owner, 2026-10-01);
-   elsewhere, a plain button where it is put. #}
-{% macro refresh(back, header=true) -%}
-{%- if header %}{{ button(paths.read, "Refresh", fields={"back": back}, header="refresh", icon="refresh") }}
-{%- else %}{{ button(paths.read, "Refresh", fields={"back": back}, label="Refresh everything from SnapTrade") }}{% endif %}
+{# One act's button (contract v20): its form, with the page's token; where
+   the act's second pair of eyes is on for this person (`eyes`, the
+   caller's second_pair_of_eyes, by tool name), Prepare instead: the form
+   posted with the reserved field `prepare`, which the dashboard keeps as a
+   prepared change for someone else to make, the act never called. #}
+{% macro act(action, said, tool, eyes, kind="", fields={}, header="", label="", icon="") -%}
+{%- if tool in eyes %}{{ button(action, "Prepare " ~ said, kind, dict(fields, prepare="1"), header, ("Prepare: " ~ label) if label else "", icon) }}
+{%- else %}{{ button(action, said, kind, fields, header, label, icon) }}{% endif %}
+{%- endmacro %}
+
+{# Read SnapTrade now (read_snaptrade_now), answering with `back`. In the
+   head (`header`), the page's header action, the kit's circular-arrow icon,
+   which the dashboard draws beside the status dot (the product owner,
+   2026-10-01); elsewhere, a plain button where it is put. #}
+{% macro refresh(back, eyes=(), header=true) -%}
+{%- if header %}{{ act(paths.read, "Refresh", "read_snaptrade_now", eyes, fields={"back": back}, header="refresh", icon="refresh") }}
+{%- else %}{{ act(paths.read, "Refresh", "read_snaptrade_now", eyes, fields={"back": back}, label="Refresh everything from SnapTrade") }}{% endif %}
 {%- endmacro %}
 
 {% macro badge(shown) -%}
@@ -53,7 +63,7 @@
 <div class="notice info" role="status"><p>SnapTrade's Connection Portal is ready. Sign in to the brokerage there; the new connection appears here on the next read.</p>
 <p><a class="button primary" href="{{ portal }}" target="_blank" rel="noopener noreferrer">Open the Connection Portal</a></p></div>
 {% else %}
-<div class="notice info" role="status">Synthetic mode has no Connection Portal. It opens once the SnapTrade settings are given and synthetic mode is off.</div>
+<div class="notice info" role="status">Sample data has no Connection Portal. It opens once the SnapTrade settings are given and sample data is off.</div>
 {% endif %}
 {% endif %}
 {% if notice %}
@@ -63,7 +73,7 @@
 </div>
 {% endif %}
 {% if waiting %}
-<div class="notice warn">Not reading SnapTrade: this plugin's settings need {{ waiting }}. Give them in this plugin's settings in the dashboard, or turn on synthetic mode to try it without a key.</div>
+<div class="notice warn">Not reading SnapTrade: this plugin's settings need {{ waiting }}. Give them in this plugin's settings in the dashboard, or turn on sample data to try it without a key.</div>
 {% endif %}
 {% if error %}
 <div class="notice bad">The last read failed: {{ error }}</div>
@@ -79,7 +89,7 @@
    declared inside it as JSON, which the kit's grid reads, and the same table
    beside them for a browser without the kit. #}
 {% macro grid(shown, columns, key) -%}
-<om-grid id="{{ shown.id }}" row-key="{{ key }}" narrow="cards" caption="{{ shown.caption }}" empty="{{ shown.empty }}">
+<om-grid id="{{ shown.id }}" row-key="{{ key }}" dense one-line narrow="priority" search="{{ shown.search or ('Search ' ~ shown.caption | lower) }}" caption="{{ shown.caption }}" empty="{{ shown.empty }}">
 <script type="application/json">{{ shown.data | tojson }}</script>
 <div class="table-wrap"><table><thead><tr>
 {%- for column in columns %}<th{% if column.type == "decimal" %} class="num"{% endif %}>{{ column.label }}</th>{% endfor -%}

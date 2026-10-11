@@ -5,14 +5,23 @@ accounts through [SnapTrade](https://snaptrade.com): their positions, their
 cash in each currency, and how fresh SnapTrade's data about them is. It records
 them in a deployment's street store as the custodian's view, following
 workflow W2 (holdings ingestion), and each account's activity as the
-custodian states it. It holds the `custody` role. This is release 0.13.1
+custodian states it. It holds the `custody` role. This is release 0.14.0
 (CHANGELOG.md says what each release changed). How to set it up and use it,
 for its admin and its readers, is in [docs/](docs/README.md). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.22.0`, which declares
-contract v18, the lake prices the book (meridian-design
-plans/the-lake-prices-the-book): nothing this plugin calls changed shape. A
+It is built on the SDK it pins, `open-meridian==0.24.0`, which declares
+contract v20 (meridian-design plans/an-agents-prepared-change-waits-for-the-
+person): its pages are the custody role's common pages, drawn on the SDK's
+custody templates (spec/plugin-pages-follow-their-role) -- Connections and
+Account links under Manage; Statements, History and Raw records under Open
+and View -- with the role's sections, columns, labels, settings, figures and
+"not set up yet" states, SnapTrade's own beside them; it links only to the
+accounts a deployment admin granted its instance (a link to another is
+refused, `ACCOUNT_NOT_LINKABLE`, and Account links says "No accounts granted
+yet" until some are); and every act it offers names the read tool that
+checks it, so a person or an agent may prepare it, Prepare offered alone
+where an act's second pair of eyes is on. Before it, contract v18: a
 Money names its cash instrument now, and this plugin still names a currency
 by its ISO 4217 code (`Money(amount, "USD")`, the Cash links' currency
 column's code alike), which core resolves, dated, to the currency's cash
@@ -27,7 +36,7 @@ month of activity records is archived, kept or deleted as an admin of the
 plugin chose, each move recorded first and a deletion inside the
 deployment's hold refused; what storage holds goes on the heartbeat, with
 the bytes each kind uses of the archive; and the
-Raw responses tab lists what moved and restores it ("The archive", below).
+Raw records tab lists what moved and restores it ("The archive", below).
 Since contract v15, access per role (tasks/sdk-contract/access-is-granted-
 per-role): a plugin holding one role, as this one does, names none on its
 pages and settings, and nothing it serves changed; and an activity recorded with its instrument unresolved is
@@ -162,7 +171,7 @@ SnapTrade lists them.
   years by default, `activity_window_days`; an admin may set it longer, up to
   36,500 days), then archived, kept or deleted, and never deleted within the
   history SnapTrade reported, so each activity the street holds can have its
-  record read back, or restored and read back, on the Raw responses tab
+  record read back, or restored and read back, on the Raw records tab
   (`/raw?ref=<key>`).
 - **The plan-code link** (question 4; the product owner's option A,
   2026-10-05): the table setting `plan_code_links`, entered by an admin of
@@ -267,7 +276,7 @@ label, a default greyed in the empty field, a unit beside a number, and the
 key type first, as a choice whose answer decides which fields follow
 (kernel/a-plugins-admin-view, points 4 and 7). While a required setting that
 applies is missing, the sidecar reports the plugin unhealthy, naming it, and
-the plugin calls nothing but says which it is waiting for. Synthetic mode runs
+the plugin calls nothing but says which it is waiting for. Sample data runs
 without any of them.
 
 | Setting | Label | Kind | Secret | Required | |
@@ -281,11 +290,11 @@ without any of them.
 | `stale_after_hours` | Stale after | number, hours | no | no | when a sync is stale; default 24 |
 | `activity_window_days` | Reported activity: window | number, days | no | no | the SDK's (below): how long the record of each activity SnapTrade reported stays in this plugin's storage, from when it was received; default 2555 (seven years), 1 to 36500, never below the deployment's hold |
 | `activity_past_window` | Reported activity: past the window | choice | no | no | the SDK's: `archived`, `kept` or `deleted`; default `archived` where the deployment gives the instance an archive, else `kept`. Never deleted within the history SnapTrade reported, nor inside the hold |
-| `responses_window_days` | Raw responses: window | number, days | no | no | the SDK's: how long SnapTrade's responses to each read stay in storage for the Raw responses tab; default 30, 1 to 36500, never below the hold |
+| `responses_window_days` | Raw responses: window | number, days | no | no | the SDK's: how long SnapTrade's responses to each read stay in storage for the Raw records tab; default 30, 1 to 36500, never below the hold |
 | `responses_past_window` | Raw responses: past the window | choice | no | no | the SDK's: `archived`, `kept` or `deleted`, defaulting as above |
 | `plan_code_links` | Plan-code links | table: account, plan code, instrument | no | no | each plan's own fund code on an account, linked to the instrument record it is; at most 200 rows. Each row arrives with who changed it and when |
 | `counted_as_cash` | Cash links | table: account (external account, optional), symbol (text), currency (text, an ISO 4217 code), the order of Plan-code links' columns | no | no | positions a custodian holds as cash that SnapTrade does not mark a cash equivalent, such as Fidelity's FDIC-insured deposit as an IRA's core position (`FDIC99532`): each is sent as the cash of its currency, naming who listed it and when (above). The symbol as SnapTrade names it; a blank account is every account holding it, and a row naming the account comes first; at most 200 rows. A fund stays a fund. Where SnapTrade marks the position itself, its own flag decides and the row is not read |
-| `synthetic` | Synthetic mode | on/off, developer | no | no | serve built-in responses instead of calling SnapTrade; default off |
+| `sample_data` | Sample data | on/off, developer | no | no | serve built-in responses instead of calling SnapTrade; default off |
 | `snaptrade_personal_key` | Personal key (the old way) | on/off, developer | no | no | 0.1.0's way of saying the key's kind; read only while the key type is unset |
 
 A developer's setting is shown in the form only on a development deployment.
@@ -336,9 +345,9 @@ to SnapTrade is described by what was asked, the exception's type and the
 HTTP status only, because SnapTrade's SDK sends the user secret in the query
 string and its exceptions can carry it. The tests hold all three to that.
 
-## Synthetic mode
+## Sample data
 
-With `synthetic` on, the plugin serves built-in responses shaped like
+With `sample_data` on, the plugin serves built-in responses shaped like
 SnapTrade's documented API (`src/snaptrade/synthetic.py`; the tests validate
 each against SnapTrade's own models). It records them through the sidecar like
 real ones, so it can be developed live on a deployment before any key exists.
@@ -375,7 +384,7 @@ the page's code runs.
 | Account links | `/admin/accounts` | `admin` | Manage |
 | Statements | `/` | `write`, `read` | Open, View |
 | History | `/history` | `write`, `read` | Open, View |
-| Raw responses | `/raw` | `write`, `read` | Open, View |
+| Raw records | `/raw` | `write`, `read` | Open, View |
 
 Setup is under Manage, and daily work under Open and View
 (intent/a-custody-plugin-serves-its-statement-receivers, "Admin pages and user
@@ -463,9 +472,9 @@ Each proposed lot carries the fields an opening balance's lot takes
 acting for them, to carry into the opening balance, where they check it and
 answer for it. Nothing here sends a lot anywhere.
 
-### Raw responses, under Open and View
+### Raw records, under Open and View
 
-**Raw responses** (`/raw`) shows what SnapTrade answered, as received, for
+**Raw records** (`/raw`) shows what SnapTrade answered, as received, for
 each account Statements shows the person: linked to one of the deployment's
 accounts they may read, and no other (the same `caller.may_read`, cut by the
 plugin's links rather than by what the last read reached, so a read kept
@@ -527,7 +536,7 @@ admin (`PageClient(..., deployment_admin=True)`).
   any).
 - **Connections** (`/admin/connections`): each brokerage connection with its
   health, what to do about it, and refreshing or reconnecting it, and the
-  SnapTrade users under the key. **+ Add**
+  SnapTrade users under the key. **Connect**
   (named "Add a brokerage connection" for assistive technology), in the
   Connections card's header, connects one through SnapTrade's Connection
   Portal (a link that opens outside the dashboard's frame); **Refresh** sits
@@ -570,7 +579,7 @@ something, by the connection's `data_freshness_mode.snaptrade`:
   exception's type and the HTTP status, never its text.
 
 The page-level Refresh reads SnapTrade now (`/read`). On Connections it sits
-beside + Add in the Connections card's header, the kit's plain button beside
+beside Connect in the Connections card's header, the kit's plain button beside
 its primary one, and is that page's only page-level Refresh (each delayed
 connection's own Refresh, above, is another action). Account links has none
 (the product owner, 2026-09-30: reading SnapTrade now is Connections'). On
@@ -711,8 +720,8 @@ them.
 
 `make preview` writes each page on synthetic data to `preview/`, served by its
 own view: Connections and Account links as a deployment admin sees them under
-Manage, and Statements and Raw responses as a reader sees them under View who
-may read two of the three accounts (Raw responses with the synthetic read kept
+Manage, and Statements and Raw records as a reader sees them under View who
+may read two of the three accounts (Raw records with the synthetic read kept
 twice, an hour apart, in a temporary directory; its kept reads forty times;
 and its archive under Open, thirty days and two months an account moved). They link the kit at `/.meridian/ui/0.10.0/`, so serve them
 beside the kit to see them styled; opened on their own they are the pages
@@ -844,7 +853,7 @@ and statement the raw record it was converted from (`RawRecordRef`: this
 instance, which the sidecar fills or checks, and the plugin's own key, opaque
 past it). The key here is the external account, the read and the call
 (`<external account>/<read>/<positions|balances>`), and an activity's is
-`activities/<external account>/<activity ID>`; the Raw responses tab opens
+`activities/<external account>/<activity ID>`; the Raw records tab opens
 the record and the call a key names (`/raw?ref=<key>`). Nothing is
 read back from the records into what is recorded, and a backfill from them
 (the contract's for a field a revision adds) is not sent by this version.
@@ -863,9 +872,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.22.0`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.22.0`.
-0.22.0 is not on PyPI yet: until it is released, `make ci-local` builds it
+The SDK is pinned exactly, `open-meridian==0.24.0`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.24.0`.
+0.24.0 is not on PyPI yet: until it is released, `make ci-local` builds it
 from the sibling checkout, and CI, which has none, cannot install it.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
@@ -921,7 +930,7 @@ which `plugin.re_resolve_activity` does (above, by hand), and
 `tests/test_contract.py` knows `receive(activity_re_resolved=)`, which
 custody does not hear. Moving to 0.21.0 (contract v16) moved only the pins:
 the two kinds in the declaration, the windows (0.12.0's settings dropped), the moves past
-them (`archive.py`) and the Raw responses tab's archive were done by hand.
+them (`archive.py`) and the Raw records tab's archive were done by hand.
 Moving to 0.22.0 (contract v18) moved only the pins (0.13.0's image ran its
 `make e2e` unchanged on core b1b8420's v18 runtime and harness first): a
 Money this plugin sends names its currency by its ISO 4217 code, which core
@@ -931,6 +940,13 @@ every date it sends is a date's ISO text, which 0.22.0 still takes; and
 lake's operations, `resolve_venue`, `report_missing_venue`, and
 `receive(prices_recorded=, bars_recorded=, observations_wanted=,
 want_withdrawn=, subjects=)`).
+Moving to 0.24.0 (contract v20) was `meridian plugin migrate --to 0.24.0`,
+which moved the pins and had nothing to rewrite, then by hand: the custody
+role's pages, settings and figures (`meridian.roles.custody`), linking only
+to the accounts granted, each act's check tool, and `tests/test_contract.py`
+knowing what v19 and v20 add that custody does not call (trades and quotes,
+`list_trades(latest_recorded=)`, `receive(trades_recorded=,
+quotes_recorded=)`).
 To move to a new SDK release, change all three together and run
 `make ci-local`; `tests/test_contract.py` fails on any operation or parameter
 the new SDK has that this plugin does not know, naming it.
@@ -1019,7 +1035,7 @@ this plugin's own page, it:
     to `archived`: the plugin archives that day past its window of 30 days,
     the conductor recording the move naming the window (`store moves`), the
     unit in the archive and no longer in storage. The read's reference opens
-    on the Raw responses tab as "in the archive, and restorable"; with Open
+    on the Raw records tab as "in the archive, and restorable"; with Open
     granted, the Archive view's Restore posts to the SDK's `POST
     /archive/restore`, the restore recorded for the person, the Archive view
     lists it restored, and the read is read back on the tab;

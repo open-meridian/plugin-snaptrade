@@ -55,7 +55,7 @@ recorded.
 
 ## What it keeps
 
-What SnapTrade answered on each read, so you can see it on the Raw responses
+What SnapTrade answered on each read, so you can see it on the Raw records
 tab, in storage your deployment gives this plugin alone. Credentials are
 removed before anything is written. Each read's answers stay in storage 30
 days by default, and each activity's own record seven years; after that they

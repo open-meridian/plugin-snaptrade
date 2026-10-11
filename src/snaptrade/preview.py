@@ -44,7 +44,7 @@ from meridian.v1 import sidecar_pb2
 from .contract import Outcome
 from .linking import DeploymentAccount, Links, Offered
 from .normalise import views
-from .page import ACCOUNTS, CONNECTIONS, RAW, RAW_ARCHIVE, STATEMENTS, hold, pages
+from .page import ACCOUNTS, CONNECTIONS, HISTORY, RAW, RAW_ARCHIVE, STATEMENTS, hold, pages
 from .raw import RESTORE_AREA, RawStore, Unit, taken
 from .settings import Config
 from .sync import Status, Syncer
@@ -104,12 +104,16 @@ def _shown(
     raw: RawStore | None = None,
     query: dict[str, str] | None = None,
     index: _Index | None = None,
+    venue: SyntheticVenue | None = None,
 ) -> str:
     """The page at `path`, served by its view for the caller `header` names,
-    from `status`, the links `scope` holds and the raw responses `raw` keeps."""
+    from `status`, the links `scope` holds and the raw responses `raw` keeps;
+    `venue` answers what a page reads from SnapTrade when asked (History)."""
     plugin = cast(meridian.Plugin, index)
     syncer = Syncer(plugin, raw=raw)
     syncer.status = status
+    if venue is not None:
+        syncer.venue = venue
     links = _Offering(plugin)
     asyncio.run(links.hold(scope))
     hold(syncer, links, asyncio.Event())
@@ -157,6 +161,7 @@ def _read(
     query: dict[str, str] | None = None,
     index: _Index | None = None,
     level: str = "read",
+    venue: SyntheticVenue | None = None,
 ) -> str:
     """Statements (or `path`) under View (or `level`), for a reader who may
     read ACC-1001 and ACC-1002, to which the first two accounts are linked,
@@ -187,7 +192,9 @@ def _read(
         subject="preview|reader",
         display_name="A Reader",
     )
-    return _shown(replace(status, outcomes=outcomes), scope, path, reader, raw, query, index)
+    return _shown(
+        replace(status, outcomes=outcomes), scope, path, reader, raw, query, index, venue
+    )
 
 
 def _keep(store: RawStore, hours: int) -> None:
@@ -262,6 +269,18 @@ def main() -> None:
         print(_shown(linked, scope, ACCOUNTS, MANAGING))
     elif page == "statements":
         print(_read(status))
+    elif page == "history":
+        print(
+            _read(
+                status,
+                HISTORY,
+                query={
+                    "account": "ACC-1002",
+                    "start": (utc_now().date() - timedelta(days=365)).isoformat(),
+                },
+                venue=SyntheticVenue(utc_now),
+            )
+        )
     elif page == "raw":
         print(_raw(status))
     elif page == "raw-kept":
@@ -272,7 +291,8 @@ def main() -> None:
         print(_shown(status, meridian.AccountScope(), CONNECTIONS, MANAGING))
     else:
         sys.exit(
-            f"no page {page!r}: connections, accounts, statements, raw, raw-kept or raw-archive"
+            f"no page {page!r}: connections, accounts, statements, history, raw, raw-kept or "
+            "raw-archive"
         )
 
 

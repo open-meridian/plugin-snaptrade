@@ -14,8 +14,8 @@ the request's query string.
 The client ID and consumer key are required, and the user ID and secret are
 required only with a commercial key. While a required one is missing the
 sidecar reports the plugin unhealthy, naming it, and the plugin itself says
-which it is waiting for. Synthetic mode, a developer's setting, still runs
-without them.
+which it is waiting for. Sample data (`sample_data`, a developer's setting,
+0.13's `synthetic`) still runs without them.
 
 The old way of saying the key's kind, `snaptrade_personal_key` (0.1.0), is
 still declared, as a developer's setting, so a value saved under it is not
@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 import meridian
+from meridian.roles import custody
 
 from . import counted_as_cash
 from .counted_as_cash import CountedAsCash, rows_of
@@ -64,7 +65,9 @@ POLL_SECONDS = "poll_seconds"
 STALE_AFTER_HOURS = "stale_after_hours"
 PLAN_CODE_LINKS = "plan_code_links"
 COUNTED_AS_CASH = "counted_as_cash"
-SYNTHETIC = "synthetic"
+# Sample data, the SDK's one developer setting for it (meridian.sample_data(),
+# ruled 2026-10-02); 0.13's `synthetic` before it.
+SYNTHETIC = "sample_data"
 # 0.1.0's on/off for a personal key, replaced by KEY_TYPE.
 PERSONAL_KEY = "snaptrade_personal_key"
 
@@ -100,6 +103,36 @@ MOST_ACTIVITY_RETENTION_DAYS = 36500
 _WITH_A_COMMERCIAL_KEY = meridian.AppliesWhen(KEY_TYPE, (COMMERCIAL,))
 
 DECLARED: tuple[meridian.Setting, ...] = (
+    # In the custody role's order (spec/plugin-pages-follow-their-role): the
+    # credentials, in SnapTrade's own words; Read every and Stale after, the
+    # role's; then SnapTrade's own -- the key's type with the user it reads
+    # gated on it, the plan-code and cash links -- and last the developer's.
+    meridian.Setting(
+        CLIENT_ID,
+        str,
+        required=True,
+        secret=True,
+        label="Client ID",
+        description="From the SnapTrade dashboard's API keys page.",
+    ),
+    meridian.Setting(
+        CONSUMER_KEY,
+        str,
+        required=True,
+        secret=True,
+        label="Consumer key",
+        description="Shown once, when SnapTrade issues the key.",
+    ),
+    custody.poll_seconds(
+        default=DEFAULT_POLL_SECONDS,
+        description=f"How often to read SnapTrade. At least {LEAST_POLL_SECONDS}.",
+    ),
+    custody.stale_after_hours(
+        default=DEFAULT_STALE_AFTER_HOURS,
+        description=(
+            "How old SnapTrade's last sync of an account may be before it is reported stale."
+        ),
+    ),
     meridian.Setting(
         KEY_TYPE,
         str,
@@ -117,22 +150,6 @@ DECLARED: tuple[meridian.Setting, ...] = (
         description="Which kind of key SnapTrade issued. It decides the fields that follow.",
     ),
     meridian.Setting(
-        CLIENT_ID,
-        str,
-        required=True,
-        secret=True,
-        label="Client ID",
-        description="From the SnapTrade dashboard's API keys page.",
-    ),
-    meridian.Setting(
-        CONSUMER_KEY,
-        str,
-        required=True,
-        secret=True,
-        label="Consumer key",
-        description="Shown once, when SnapTrade issues the key.",
-    ),
-    meridian.Setting(
         USER_ID,
         str,
         required=True,
@@ -148,24 +165,6 @@ DECLARED: tuple[meridian.Setting, ...] = (
         label="User secret",
         applies_when=_WITH_A_COMMERCIAL_KEY,
         description="That user's secret, returned when the user was registered.",
-    ),
-    meridian.Setting(
-        POLL_SECONDS,
-        int,
-        label="Read every",
-        default=DEFAULT_POLL_SECONDS,
-        unit="seconds",
-        description=f"How often to read SnapTrade. At least {LEAST_POLL_SECONDS}.",
-    ),
-    meridian.Setting(
-        STALE_AFTER_HOURS,
-        int,
-        label="Stale after",
-        default=DEFAULT_STALE_AFTER_HOURS,
-        unit="hours",
-        description=(
-            "How old SnapTrade's last sync of an account may be before it is reported stale."
-        ),
     ),
     meridian.Setting(
         PLAN_CODE_LINKS,
@@ -226,17 +225,6 @@ DECLARED: tuple[meridian.Setting, ...] = (
         ),
     ),
     meridian.Setting(
-        SYNTHETIC,
-        bool,
-        label="Synthetic mode",
-        default=False,
-        developer=True,
-        description=(
-            "Serve built-in synthetic SnapTrade responses instead of calling SnapTrade, "
-            "to develop against before any key exists."
-        ),
-    ),
-    meridian.Setting(
         PERSONAL_KEY,
         bool,
         label="Personal key (the old way)",
@@ -246,6 +234,12 @@ DECLARED: tuple[meridian.Setting, ...] = (
             "personal key, off a commercial one. Kept so a value saved before 0.2.0 "
             "still counts."
         ),
+    ),
+    meridian.sample_data(
+        description=(
+            "Serve built-in sample SnapTrade responses instead of calling SnapTrade, to "
+            "develop against before any key exists."
+        )
     ),
 )
 

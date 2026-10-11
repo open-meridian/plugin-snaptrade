@@ -638,6 +638,10 @@ KNOWN_PARAMETERS = {
         # Known, and not heard (v15): a re-resolution is delivered to
         # operations; custody sends it, and the street answers its own.
         "activity_re_resolved",
+        # Known, and not heard (v19): trades and quotes are the lake's, heard
+        # by the reading roles.
+        "trades_recorded",
+        "quotes_recorded",
         # Known, and not heard (v18): the lake's prices and bars go to the
         # reading roles, and the wants to a dgm; custody is neither.
         "prices_recorded",
@@ -766,6 +770,31 @@ KNOWN_PARAMETERS = {
     "list_datasets": set(),
     "resolve_venue": {"as_of_ns", "identifiers"},
     "report_missing_venue": {"as_of_ns", "identifiers", "observed_at_ns", "reason", "source"},
+    # Known, and not used (v19, v20): trades and quotes are a data plugin's to
+    # record and the reading roles' to read; custody records the street.
+    "record_trades": {"acting_for", "trades", "want_id"},
+    "record_quotes": {"acting_for", "quotes", "want_id"},
+    "list_trades": {
+        "after_watermark",
+        "as_of_ns",
+        "cursor",
+        "latest_recorded",
+        "page_size",
+        "sources",
+        "subjects",
+        "valid_from_ns",
+        "valid_until_ns",
+    },
+    "list_quotes": {
+        "as_of_ns",
+        "at_ns",
+        "cursor",
+        "page_size",
+        "sources",
+        "subjects",
+        "valid_from_ns",
+        "valid_until_ns",
+    },
 }
 
 

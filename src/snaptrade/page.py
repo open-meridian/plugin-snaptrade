@@ -1,6 +1,11 @@
 """The plugin's pages, declared and served on the SDK's `meridian.Pages`:
-Connections and Account links under Manage, Statements and Raw responses
-under Open and View.
+Connections and Account links under Manage, Statements, History and Raw
+records under Open and View -- the custody role's common pages (contract
+v20; spec/plugin-pages-follow-their-role), each template extending the SDK's
+`meridian/roles/custody/<page>.html` and adding SnapTrade's nuance only in
+its blocks. From contract v20 a plugin links only to the accounts a
+deployment admin granted its instance, and every act names its check tool
+("Each act's check", at the end).
 
 The dashboard's home opens the plugin by a button per level the person holds
 on it (meridian-design sdk-contract/a-plugin-has-admins, the rulings of
@@ -35,7 +40,7 @@ the view runs. So the tab row and the plugin agree by construction.
   who may read none. Under Open it has Refresh, which reads SnapTrade now;
   under View it acts on nothing (intent/a-custody-plugin-serves-its-
   statement-receivers, the user-page split).
-- **Raw responses** (`/raw`), at `write` and `read`: what SnapTrade answered
+- **Raw records** (`/raw`), at `write` and `read`: what SnapTrade answered
   each read, as received, for the same accounts (raw.py): the latest read
   per account, each call formatted, the older reads kept, each downloadable
   as JSON. An account's data, so never at `admin`.
@@ -68,8 +73,10 @@ where SnapTrade and the sidecar are asked.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import http.server
-from collections.abc import Awaitable, Mapping, Sequence
+import json
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -78,11 +85,13 @@ from typing import Any, TypeVar
 from urllib.parse import parse_qs, urlencode
 
 import meridian
-from meridian.pages import CSRF_FIELD, REQUEST_SECONDS
+from meridian.pages import REQUEST_SECONDS
+from meridian.roles import custody
 from meridian.v1 import sidecar_pb2
 
 from . import history, records
-from .declaration import ACTIVITY_KIND, RESPONSES_KIND
+from .activities import KINDS as ACTIVITY_KINDS
+from .declaration import ACTIVITY_KIND, KINDS, RESPONSES_KIND
 from .linking import LINKS_AT_ONCE, Link, Links, LinkView, Offered, refusal
 from .normalise import REMEDY, AccountView, ConnectionView, Holding, Serving, SyncState
 from .plan_codes import PlanCodeLink
@@ -98,16 +107,17 @@ from .raw import (
     parse_activity_key,
     parse_record_key,
 )
-from .settings import label
-from .sync import ATTENTION, Status, Syncer
+from .settings import CLIENT_ID, COMMERCIAL, CONSUMER_KEY, USER_SECRET, label
+from .sync import Status, Syncer
 from .venue import VenueError
 
 TITLE = "SnapTrade"
 # The kit's version these pages were built against. The dashboard serves the
 # deployment's newest 0.x for it; pinning one keeps the pages as they were built.
 # 0.10.0: every page fits one screen (one-line rows, row-detail, om-pager),
-# which the Raw responses tab is built on.
-KIT = "0.10.0"
+# which the Raw records tab is built on; 0.12.0: the custody role templates'
+# "Facts" and "Next step", a "not set up yet" link opening core's tab.
+KIT = "0.12.0"
 
 # The largest body any request here may carry: the map's several-link form,
 # a pair of IDs for each link, a hundred bytes or so a pair, room for some
@@ -260,6 +270,25 @@ REFRESH_REFUSED = (
     "SnapTrade doesn't allow a manual refresh for this connection on this plan; "
     "it reads fresh data on every sync."
 )
+# What a link to an account not granted to this instance is told (contract
+# v20, W6.30): the deployment admin grants each plugin instance the accounts
+# it may link to, nothing by default.
+NOT_LINKABLE = (
+    "Not linked: a deployment admin has not granted this plugin that account. A deployment "
+    "admin grants this plugin the accounts it may link to, on its Accounts tab."
+)
+NOT_LINKABLE_REASON = "REFUSAL_REASON_ACCOUNT_NOT_LINKABLE"
+
+
+def _not_linkable(failed: Exception) -> bool:
+    """Whether the sidecar refused a link for naming an account not granted
+    to this instance (contract v20)."""
+    return (
+        isinstance(failed, meridian.CommandRefused)
+        and failed.reason_name == NOT_LINKABLE_REASON
+    )
+
+
 # What a plugin admin who is not a deployment admin is told of a new account.
 ONLY_DEPLOYMENT_ADMINS = (
     "Only a deployment admin names a new account: link it to an existing one, or ask "
@@ -339,7 +368,7 @@ def reading(status: Status, setup: bool = True) -> Reading:
     """
     if status.reading:
         said = (
-            "Synthetic mode: reading built-in responses, not SnapTrade"
+            "Sample data: reading built-in responses, not SnapTrade"
             if status.mode == "synthetic"
             else "Reading SnapTrade"
         )
@@ -354,7 +383,7 @@ def reading(status: Status, setup: bool = True) -> Reading:
         return Reading("error", "Not reading SnapTrade", f"Waiting for settings: {wanted}.")
     if status.read_at is not None:
         said = (
-            "Synthetic mode: built-in responses, not SnapTrade"
+            "Sample data: built-in responses, not SnapTrade"
             if status.mode == "synthetic"
             else "SnapTrade read"
         )
@@ -435,41 +464,79 @@ def _connections(notice: Notice | None = None, portal: str | None = None) -> mer
     return _html(
         pages.render(
             "connections.html",
+            data=_connections_read(status),
+            # The section head's actions (the role template's `action`):
+            # reading SnapTrade now, and connecting a brokerage through its
+            # Connection Portal; each drawn as Prepare under its act's
+            # second pair of eyes (contract v20). The page hands the
+            # dashboard no header action (the product owner, 2026-09-30).
+            action=[
+                {
+                    "tool_name": "read_snaptrade_now",
+                    "path": READ,
+                    "said": "Refresh",
+                    "label": "Refresh everything from SnapTrade",
+                },
+                {
+                    "tool_name": "open_connection_portal",
+                    "path": CONNECT,
+                    "said": "Connect",
+                    "label": "Connect a brokerage through SnapTrade's Connection Portal",
+                    "kind": "primary",
+                },
+            ],
             dot=_dot(status),
             back=CONNECTIONS,
             notice=notice,
             portal=portal,
             waiting=_waiting_for(status),
             error=status.error,
-            connections=[_connection(c) for c in status.connections],
-            user_id=status.user_id,
+            shown={c.connection_id: _connection(c) for c in status.connections},
             users=status.users,
         )
     )
 
 
+def _credentials() -> list[custody.Credential]:
+    """Each credential the key type asks for, by the form's label, set or
+    not: never a value."""
+    held = _now().syncer
+    missing = set(held.status.missing)
+    names = [CLIENT_ID, CONSUMER_KEY]
+    if held.config.key_type == COMMERCIAL:
+        names.append(USER_SECRET)
+    return [custody.Credential(label(name), name not in missing) for name in names]
+
+
 def _connections_read(status: Status) -> records.ConnectionsRead:
-    """The Connections tab as data: each connection the last read reached,
-    how it is and what to do, and how many accounts it reaches; no account's
-    data."""
+    """The Connections tab as data: the custody role's (each credential, set
+    or not, and each connection the last read reached: its state, the
+    accounts it reaches and when it was read), then how each is and what to
+    do; no account's data."""
+    read_at = status.read_at.isoformat() if status.read_at else ""
     return records.ConnectionsRead(
-        read_at=status.read_at.isoformat() if status.read_at else "",
-        mode=status.mode,
-        error=status.error,
+        credentials=_credentials(),
         connections=[
             records.ConnectionRead(
+                connection=_connection_label(c),
+                state=_STATE_LABEL[c.state],
+                accounts_reached=len(c.accounts),
+                # As the page shows it: to the minute, in UTC.
+                last_read=_moment(status.read_at),
                 connection_id=c.connection_id,
                 name=c.name,
                 institution=c.institution,
-                state=_STATE_LABEL[c.state],
                 detail=c.detail,
                 remedy="" if c.state is SyncState.CURRENT else REMEDY[c.state],
                 serving=c.serving.value,
                 disabled_at=c.disabled_at.isoformat() if c.disabled_at else "",
-                accounts=len(c.accounts),
             )
             for c in status.connections
         ],
+        read_at=read_at,
+        mode=status.mode,
+        error=status.error,
+        user_id=status.user_id,
     )
 
 
@@ -480,15 +547,55 @@ def _connections_read(status: Status) -> records.ConnectionsRead:
     answers=records.ConnectionsRead,
     name="read_connections",
     description=(
-        "The SnapTrade connections the last read reached: each one's state, what to do "
-        "about it, whether SnapTrade serves it in real time or on a delay (only a delayed "
-        "one can be refreshed), and how many accounts it reaches. No account's data."
+        "Each credential SnapTrade's key asks for, set or not (never a value); the SnapTrade "
+        "connections the last read reached: each one's state, the accounts it reaches and "
+        "when it was read, what to do about it, and whether SnapTrade serves it in real time "
+        "or on a delay (only a delayed one can be refreshed). No account's data."
     ),
 )
 async def connections(request: meridian.Request) -> meridian.Response:
     if request.tool_name:
         return pages.answer("connections.html", _connections_read(_now().syncer.status))
-    return _connections()
+    return _connections(await _prepared_notice(request))
+
+
+#: What each act prepared here asks, in the page's words, from its arguments.
+_ASKS: dict[str, Callable[[dict[str, Any]], str]] = {
+    "open_connection_portal": lambda a: (
+        "Connect a brokerage through SnapTrade's Connection Portal"
+    ),
+    "refresh_connection": lambda a: f"Refresh the connection {a.get('connection_id', '')}",
+    "reconnect_connection": lambda a: f"Reconnect the connection {a.get('connection_id', '')}",
+    "read_snaptrade_now": lambda a: "Read SnapTrade now",
+    "link_account": lambda a: (
+        f"Unlink {a.get('external_account_id', '')}"
+        if a.get("intent") == "unlink"
+        else f"Create {a.get('new_account_name', '')} and link "
+        f"{a.get('external_account_id', '')} to it"
+        if a.get("intent") == "create"
+        else f"Link {a.get('external_account_id', '')} to {a.get('account_id', '')}"
+    ),
+}
+
+
+async def _prepared_notice(request: meridian.Request) -> Notice | None:
+    """The page opened from a prepared change (contract v20, W6.27): what it
+    asks, marked "prepared by" its preparer with their reason (another's
+    words, shown as text); the person makes it with the page's own button,
+    or leaves it. None where the page was opened from none."""
+    prepared = await request.prepared()
+    if prepared is None:
+        return None
+    by = prepared.prepared_through_client or prepared.prepared_by_display_name or "someone"
+    act = prepared.tool_name.rsplit("__", 1)[-1]
+    try:
+        arguments = json.loads(prepared.arguments_json or "{}")
+    except ValueError:
+        arguments = {}
+    given: dict[str, Any] = arguments if isinstance(arguments, dict) else {}
+    asks = _ASKS[act](given) if act in _ASKS else act
+    reason = f": {prepared.reason}" if prepared.reason else ""
+    return Notice(f"Prepared by {by}{reason}. It asks: {asks}.")
 
 
 @pages.route(
@@ -556,6 +663,8 @@ def _no_venue(request: meridian.Request) -> meridian.Response:
     params=records.Connecting,
     answers=records.Portal,
     name="open_connection_portal",
+    checked_by="check_open_connection_portal",
+    made_on=CONNECTIONS,
 )
 async def connect(request: meridian.Request) -> meridian.Response:
     """Open SnapTrade's Connection Portal, to connect a brokerage: a link the
@@ -603,6 +712,7 @@ def _refreshed(
     params=records.ConnectionAsked,
     answers=records.Refreshed,
     name="refresh_connection",
+    checked_by="check_refresh_connection",
 )
 async def refresh(request: meridian.Request) -> meridian.Response:
     """Ask SnapTrade to read a delayed connection's brokerage again (it may
@@ -652,6 +762,7 @@ async def refresh(request: meridian.Request) -> meridian.Response:
     params=records.ConnectionAsked,
     answers=records.Portal,
     name="reconnect_connection",
+    checked_by="check_reconnect_connection",
 )
 async def reconnect(request: meridian.Request) -> meridian.Response:
     """Open SnapTrade's Connection Portal to sign in to a connection's
@@ -833,6 +944,15 @@ async def _accounts(
     return _html(
         pages.render(
             "accounts.html",
+            data=await _links_read(request, offered),
+            action=LINK,
+            map=_map_data(shown, links, offered, taken),
+            group_by="connection",
+            link_several=True,
+            no_new_account=not request.caller.deployment_admin,
+            # link_account's second pair of eyes, on for this person: the
+            # plain forms offer Prepare alone (contract v20).
+            gated="link_account" in request.caller.second_pair_of_eyes,
             dot=_dot(status),
             back=ACCOUNTS,
             notice=notice,
@@ -842,7 +962,6 @@ async def _accounts(
             summary=summary.capitalize(),
             # Only a deployment admin names a new account (W6.4).
             creates=request.caller.deployment_admin,
-            map=_map_data(shown, links, offered, taken),
             rows=[
                 _mapping_row(c, view, links[view.account.external_account_id])
                 for c, view in shown
@@ -862,7 +981,6 @@ async def _accounts(
             # Open accounts there are, every one linked already.
             offered_any=any(a.open for a in offered.accounts),
             most_name=_MOST_NAME,
-            token_name=CSRF_FIELD,
             settings_said=_settings_said(),
         )
     )
@@ -894,25 +1012,39 @@ def _settings_said() -> dict[str, Any]:
     }
 
 
-def _links_read(status: Status) -> records.LinksRead:
-    """The Account links tab as data: each external account the last read
-    reached, by its identity alone, and its link; no account's data."""
+async def _links_read(
+    request: meridian.Request, offered: Offered | None = None
+) -> records.AccountLinksRead:
+    """The Account links tab as data, the custody role's first: each
+    external account the last read reached, by its identity alone; the
+    deployment's accounts granted to this instance, which a deployment admin
+    chooses (contract v20); and the links. Then the plan-code links and the
+    activity records' window. No account's data."""
+    status = _now().syncer.status
     links = _links_of(status)
-    return records.LinksRead(
-        [
-            records.LinkRead(
+    if offered is None:
+        offered = await _offered_to(request.caller)
+    return records.AccountLinksRead(
+        external_accounts=[
+            records.ExternalAccountRead(
                 external_account_id=view.account.external_account_id,
                 name=view.account.name,
+                detail=_where(connection, view),
                 institution=connection.institution,
                 connection_id=connection.connection_id,
                 number=view.account.number,
                 stable=view.account.stable,
-                linked=(link := links[view.account.external_account_id]).state is Link.LINKED,
-                account_id=link.account_id,
-                account_name=link.account_name,
             )
             for connection in status.connections
             for view in connection.accounts
+        ],
+        accounts=[custody.AccountRead(a.account_id, a.name) for a in offered.accounts],
+        links=[
+            custody.LinkRead(
+                view.account.external_account_id, link.account_id, link.account_name
+            )
+            for view in status.accounts
+            if (link := links[view.account.external_account_id]).state is Link.LINKED
         ],
         plan_codes=_plan_code_reads(_now().syncer.config.plan_codes),
         **_window_read(),
@@ -934,12 +1066,13 @@ def _window_read() -> dict[str, Any]:
     ACCOUNTS,
     "Account links",
     levels="admin",
-    answers=records.LinksRead,
+    answers=records.AccountLinksRead,
     name="read_account_links",
     description=(
         "The external accounts SnapTrade's connections reach, by identity alone -- name, "
-        "institution, the brokerage's number where SnapTrade gives it, whether its ID is "
-        "stable -- each linked to one of the deployment's accounts or not; the plan-code "
+        "where it is, institution, the brokerage's number where SnapTrade gives it, whether "
+        "its ID is stable; the deployment's accounts a deployment admin granted this plugin "
+        "to link to (nothing by default); the links between them; the plan-code "
         "links people made, each a plan's own fund code on one account linked to the "
         "instrument it is; and how long each reported activity's record is kept. No "
         "account's data."
@@ -947,8 +1080,8 @@ def _window_read() -> dict[str, Any]:
 )
 async def accounts(request: meridian.Request) -> meridian.Response:
     if request.tool_name:
-        return pages.answer("accounts.html", _links_read(_now().syncer.status))
-    return await _accounts(request)
+        return pages.answer("accounts.html", await _links_read(request))
+    return await _accounts(request, await _prepared_notice(request))
 
 
 def _field(form: Mapping[str, list[str]], name: str) -> str:
@@ -999,7 +1132,11 @@ async def link(request: meridian.Request) -> meridian.Response:
                 _ASKING_SECONDS,
             )
         except meridian.MeridianError as refused_link:
-            notice = Notice(f"The sidecar refused this: {refusal(refused_link)}", "bad")
+            notice = (
+                Notice(NOT_LINKABLE, "bad")
+                if _not_linkable(refused_link)
+                else Notice(f"The sidecar refused this: {refusal(refused_link)}", "bad")
+            )
         except Exception as failed:
             notice = Notice(f"That failed: {type(failed).__name__}", "bad")
         else:
@@ -1023,6 +1160,8 @@ async def link(request: meridian.Request) -> meridian.Response:
     params=records.LinkAsked,
     answers=records.Linked,
     name="link_account",
+    checked_by="check_link_account",
+    accounts=["account_id"],
     description=(
         "Link one of the external accounts read_account_links lists to one of the "
         "deployment's accounts (intent link, with account_id; a link to another account "
@@ -1071,6 +1210,12 @@ async def link_tool(request: meridian.Request) -> meridian.Response:
             _ASKING_SECONDS,
         )
     except meridian.MeridianError as refused_link:
+        if _not_linkable(refused_link):
+            pages.refuse(
+                NOT_LINKABLE,
+                ("account_id", "not an account a deployment admin granted this plugin"),
+                reason="account_not_linkable",
+            )
         pages.refuse(f"The sidecar refused this: {refusal(refused_link)}")
     except Exception as failed:
         pages.refuse(f"That failed: {type(failed).__name__}", reason="unavailable")
@@ -1394,83 +1539,68 @@ def _statement(
     }
 
 
-def _statement_tiles(status: Status, shown: Sequence[Shown]) -> list[dict[str, str]]:
-    attention = sum(1 for _, view in shown if view.freshness.state in ATTENTION)
-    statements = [view.statement for _, view in shown if view.statement is not None]
-    rows = sum(len(statement.holdings) for statement in statements)
-    brokerages = {connection.institution or connection.connection_id for connection, _ in shown}
-    return [
-        {
-            "label": "Accounts",
-            "value": str(len(shown)),
-            "delta": f"{attention} not up to date" if attention else "all up to date",
-            "ink": "warn-ink" if attention else "",
-        },
-        {"label": "Brokerages", "value": str(len(brokerages))},
-        {
-            "label": "Rows",
-            "value": str(rows),
-            "delta": f"in {_plural(len(statements), 'statement')}",
-        },
-        _last_read(status),
-    ]
-
-
 _MODE = {
-    "synthetic": " Synthetic mode: every figure here is invented, not read from SnapTrade.",
+    "synthetic": " Sample data: every figure here is invented, not read from SnapTrade.",
     "snaptrade": "",
     "waiting": " SnapTrade is not being read yet.",
 }
 
 
-def _statements(caller: meridian.Caller, notice: Notice | None = None) -> meridian.Response:
-    """Statements: for each account linked to one the caller may read, its
-    sync state, its last statement and its rows, as the last read found them;
-    or plainly nothing, for somebody who may read none."""
+def _statements(request: meridian.Request, notice: Notice | None = None) -> meridian.Response:
+    """Statements: the custody role's row per account linked to one the
+    caller may read (its custodian, the day its statement is as of, its
+    state), then one account's statement at a time -- the one the address
+    names, else the first -- its sync state and its rows, searched; or
+    plainly nothing, for somebody who may read none."""
+    caller = request.caller
     status = _now().syncer.status
     shown = visible(status, _links_of(status), caller) if caller.read else []
+    asked = request.query.get("account", "").strip()
+    chosen = next(
+        (at for at, (_, view) in enumerate(shown) if view.account.external_account_id == asked),
+        0,
+    )
+    one = [_statement(chosen, *shown[chosen], status)] if shown else []
     return _html(
         pages.render(
             "statements.html",
+            data=_statements_read(caller),
             dot=_dot(status, setup=False),
             back=STATEMENTS,
             notice=notice,
-            # Who may read nothing here is told so, and nothing is read for them.
-            nothing=not caller.read,
             mode=_MODE[status.mode],
             read_at=status.read_at,
             failed=bool(status.error),
-            tiles=_statement_tiles(status, shown) if shown else [],
             columns=_ROW_COLUMNS,
-            statements=[
-                _statement(index, connection, view, status)
-                for index, (connection, view) in enumerate(shown)
-            ],
+            statement=one[0] if one else None,
         )
     )
 
 
 def _statements_read(caller: meridian.Caller) -> records.StatementsRead:
-    """Statements as data: each account linked to one the caller may read,
-    its sync state and its last statement's rows, as recorded."""
+    """Statements as data: the custody role's row per account linked to one
+    the caller may read -- the account, its custodian, the day its statement
+    is as of, its state -- then its sync state's detail and its last
+    statement's rows, as recorded."""
     status = _now().syncer.status
     links = _links_of(status)
     shown = visible(status, links, caller) if caller.read else []
     made: list[records.StatementRead] = []
-    for _, view in shown:
+    for connection, view in shown:
         fresh, statement = view.freshness, view.statement
         recorded, _, _ = _recorded(view, status)
         made.append(
             records.StatementRead(
                 account=links[view.account.external_account_id].account_id,
+                custodian=connection.institution or "Unknown brokerage",
+                as_of=statement.as_of_date if statement is not None else "",
+                state=_STATE_LABEL[fresh.state],
                 external_account_id=view.account.external_account_id,
                 name=view.account.name,
-                state=_STATE_LABEL[fresh.state],
                 detail=fresh.detail or view.withheld,
                 holdings_as_of=fresh.holdings_as_of.isoformat() if fresh.holdings_as_of else "",
                 history_as_of=fresh.history_as_of.isoformat() if fresh.history_as_of else "",
                 history_from=view.history_from,
-                as_of_date=statement.as_of_date if statement is not None else "",
                 recorded=recorded,
                 rows=[_row_read(holding) for holding in statement.holdings]
                 if statement is not None
@@ -1478,9 +1608,9 @@ def _statements_read(caller: meridian.Caller) -> records.StatementsRead:
             )
         )
     return records.StatementsRead(
+        statements=made,
         read_at=status.read_at.isoformat() if status.read_at else "",
         mode=status.mode,
-        statements=made,
     )
 
 
@@ -1517,8 +1647,9 @@ def _row_read(holding: Holding) -> records.RowRead:
     answers=records.StatementsRead,
     name="read_statements",
     description=(
-        "Each account linked to one the person may read: its sync state, how far back "
-        "SnapTrade holds its history, and its last statement's rows as recorded -- quantity, "
+        "Each account linked to one the person may read: its custodian, the day its last "
+        "statement is as of and its state; how far back SnapTrade holds its history; and "
+        "its last statement's rows as recorded -- quantity, "
         "settled quantity, SnapTrade's average purchase price per unit and its tax lots, as "
         "reported."
     ),
@@ -1526,7 +1657,7 @@ def _row_read(holding: Holding) -> records.RowRead:
 async def statements(request: meridian.Request) -> meridian.Response:
     if request.tool_name:
         return pages.answer("statements.html", _statements_read(request.caller))
-    return _statements(request.caller)
+    return _statements(request, await _prepared_notice(request))
 
 
 # ── History, at write and read ──────────────────────────────────────────────
@@ -1543,16 +1674,6 @@ _HISTORY_SECONDS = REQUEST_SECONDS - 15
 
 
 # An account's activities, one grid; and a position's proposed lots, one each.
-_ACTIVITY_COLUMNS = (
-    Column("trade_date", "Traded"),
-    Column("type", "Type", type="code"),
-    Column("symbol", "Symbol", type="code", hint="description", blank="none"),
-    Column("units", "Units", type="decimal", blank="not given"),
-    Column("price", "Price", type="decimal", blank="not given"),
-    Column("amount", "Amount", type="decimal", blank="not given"),
-    Column("currency", "Currency"),
-    Column("settlement_date", "Settles"),
-)
 _PROPOSED_COLUMNS = (
     Column("quantity", "Quantity", type="decimal"),
     Column("cost", "Cost", type="decimal", blank="not stated"),
@@ -1583,37 +1704,22 @@ def _grid(
     }
 
 
-def _activity_grid(data: history.Activities) -> dict[str, Any]:
-    rows = [
-        {
-            "key": f"{index}:{each.id}",
-            "trade_date": each.trade_date[:10],
-            "type": each.type,
-            "symbol": each.symbol or each.option_symbol,
-            "description": each.description,
-            "units": _figure(each.units),
-            "price": _figure(each.price),
-            "amount": _figure(each.amount),
-            "currency": each.currency,
-            "settlement_date": each.settlement_date[:10],
-        }
-        for index, each in enumerate(data.activities)
-    ]
-    return _grid(
-        "activities",
-        "Activities",
-        "No activities traded in this range.",
-        _ACTIVITY_COLUMNS,
-        rows,
-    )
+def _kind_of(snaptrade_type: str) -> str:
+    """SnapTrade's activity type as the custodial activity's kind it converts
+    to (activities.py), in plain words; "" where it converts to none."""
+    kind = ACTIVITY_KINDS.get(snaptrade_type)
+    if kind is None:
+        return ""
+    named: str = meridian.ActivityKind.Name(kind)
+    return named.removeprefix("ACTIVITY_KIND_").lower().replace("_", " ")
 
 
 def _history_href(data: history.Activities, offset: int) -> str:
     return _raw_href(
         HISTORY,
         account=data.account,
-        start=data.start.isoformat(),
-        end=data.end.isoformat(),
+        start=data.start.isoformat() if data.start else "",
+        end=data.end.isoformat() if data.end else "",
         limit=data.limit,
         offset=offset,
     )
@@ -1754,7 +1860,7 @@ def _history_refused(
     return _html(
         pages.render(
             template,
-            data=None,
+            data=history.Activities(account=account),
             notice=Notice(words, "warn"),
             **_history_context(request, account),
         )
@@ -1807,9 +1913,19 @@ async def account_history(request: meridian.Request) -> meridian.Response:
             fields = tuple((p.path, p.message) for p in request.param_errors)
             return _history_refused(request, template, account, "Check the range.", *fields)
         if not account:
-            return _html(
-                pages.render(template, data=None, notice=None, **_history_context(request, ""))
-            )
+            # The first account the person may read, so the page says what
+            # it holds; none, and the role's "No activity yet" says why.
+            readable = _readable_accounts(request.caller)
+            if not readable:
+                return _html(
+                    pages.render(
+                        template,
+                        data=history.Activities(),
+                        notice=None,
+                        **_history_context(request, ""),
+                    )
+                )
+            account = readable[0]["account_id"]
     today = held.syncer.now().date()
     end = asked.end or today
     start = asked.start or end - timedelta(days=history.DEFAULT_DAYS)
@@ -1864,7 +1980,8 @@ async def account_history(request: meridian.Request) -> meridian.Response:
         return _history_refused(request, template, account, said, reason="unavailable")
     note = history.range_note(start, end, asked.offset, asked.limit)
     ref = _kept(found, [activities_call(got.body, note)])
-    rows = [history.activity(each) for each in got.activities]
+    reported = [history.activity(each) for each in got.activities]
+    rows = [history.read_of(account, each, _kind_of(each.type)) for each in reported]
     words = [
         f"{len(rows)} of {got.total if got.total is not None else 'an unstated number of'} "
         f"activities traded from {start} to {end}, from {asked.offset}."
@@ -1875,6 +1992,7 @@ async def account_history(request: meridian.Request) -> meridian.Response:
     elif not since:
         words.append("SnapTrade states no first transaction date for this account.")
     data = history.Activities(
+        activities=rows,
         account=account,
         external_account_id=found.view.account.external_account_id,
         connection=_connection_named(found.connection),
@@ -1884,7 +2002,6 @@ async def account_history(request: meridian.Request) -> meridian.Response:
         offset=asked.offset,
         limit=asked.limit,
         total=got.total,
-        activities=rows,
         raw_record=ref,
         said=" ".join(words),
     )
@@ -1892,8 +2009,6 @@ async def account_history(request: meridian.Request) -> meridian.Response:
         template,
         data,
         notice=None,
-        grid=_activity_grid(data),
-        columns=_ACTIVITY_COLUMNS,
         earlier=_page_href(data, earlier=True),
         later=_page_href(data, earlier=False),
         **_history_context(request, account),
@@ -1991,7 +2106,7 @@ async def proposed_lots(request: meridian.Request) -> meridian.Response:
     )
 
 
-# ── Raw responses, at write and read ────────────────────────────────────────
+# ── Raw records, at write and read ──────────────────────────────────────────
 #
 # SnapTrade's responses to each read, as received, per account (raw.py), one
 # account at a time and on one screen: the read asked for or the latest, each
@@ -2156,8 +2271,22 @@ def _moved_note(
     ), unit
 
 
+def _raw_kinds(request: meridian.Request) -> dict[str, Any]:
+    """What the custody role's Raw records section draws: each kind this
+    plugin keeps, at the window its settings hold now, what is done past it,
+    and how many records of it storage holds (`plugin.stored`)."""
+    windows = _now().syncer.config.windows
+    return {
+        "kinds": [
+            dataclasses.replace(kind, window_days=windows.of(kind.name).days) for kind in KINDS
+        ],
+        "stored": getattr(request.plugin, "stored", ()) or (),
+        "past": {f"{kind.name}_past_window": windows.of(kind.name).past for kind in KINDS},
+    }
+
+
 def _raw(request: meridian.Request, notice: Notice | None = None) -> meridian.Response:
-    """Raw responses: one account the person may read (the one the query
+    """Raw records: one account the person may read (the one the query
     names, or the first), its read asked for or the latest, or its kept
     reads (`view=kept`), paged."""
     caller = request.caller
@@ -2253,7 +2382,8 @@ def _raw(request: meridian.Request, notice: Notice | None = None) -> meridian.Re
             account=shown,
             unit=unit,
             data=None,
-            kinds=_KIND_LABEL,
+            kind_labels=_KIND_LABEL,
+            **_raw_kinds(request),
             view=view,
             back=RAW,
             notice=notice
@@ -2280,7 +2410,7 @@ def _raw(request: meridian.Request, notice: Notice | None = None) -> meridian.Re
 
 @pages.page(
     RAW,
-    "Raw responses",
+    "Raw records",
     levels=["write", "read"],
     tool=False,
     why=(
@@ -2305,7 +2435,7 @@ async def raw_responses(request: meridian.Request) -> meridian.Response:
         "accounts the person may read -- an account's day of raw responses, or its month of "
         "reported activity records -- each with how many records it holds, when they were "
         "received, and where it stands: archived (restorable with restore_unit, naming its "
-        "record_kind and unit), restored (readable on the Raw responses tab until the date "
+        "record_kind and unit), restored (readable on the Raw records tab until the date "
         "given) or deleted. limit of them from offset, the newest first."
     ),
 )
@@ -2356,7 +2486,8 @@ async def raw_archive(request: meridian.Request) -> meridian.Response:
             "archive_href": _raw_href(RAW_ARCHIVE, **here) if here else RAW_ARCHIVE,
         },
         names=names,
-        kinds=_KIND_LABEL,
+        kind_labels=_KIND_LABEL,
+        **_raw_kinds(request),
         short=_KIND_SHORT,
         view="archive",
         back=RAW,
@@ -2431,6 +2562,7 @@ READING = "Reading SnapTrade now. Reload in a moment."
     params=records.ReadAsked,
     answers=records.ReadStarted,
     name="read_snaptrade_now",
+    checked_by="check_snaptrade_now",
     description=(
         "Read SnapTrade now, every connection and account, and record what it reads; "
         "read_statements shows it once the read is done. Changes nothing at SnapTrade."
@@ -2438,7 +2570,7 @@ READING = "Reading SnapTrade now. Reload in a moment."
 )
 async def read_now(request: meridian.Request) -> meridian.Response:
     """Read SnapTrade now: Refresh, in the Connections card beside + Add, and
-    in the head on Statements and Raw responses under Open (View acts on
+    in the head on Statements and Raw records under Open (View acts on
     nothing; Account links has none, the product owner 2026-09-30). It answers with the page
     it was asked from, among those of the session's level."""
     if (refused := _oversized(request)) is not None:
@@ -2452,7 +2584,210 @@ async def read_now(request: meridian.Request) -> meridian.Response:
     if not request.caller.admin:
         if back == RAW:
             return _raw(request, notice)
-        return _statements(request.caller, notice)
+        return _statements(request, notice)
     if back == ACCOUNTS:
         return await _accounts(request, notice)
     return _connections(notice)
+
+
+# ── Each act's check (contract v20) ─────────────────────────────────────────
+#
+# Every act here names the read tool that checks it without changing
+# anything, taking the same record (`checked_by=`), so a person or an agent
+# may prepare it and someone who may make it makes it on its page (W6.26).
+# Each check runs its act's own checks, stopped before SnapTrade or the
+# sidecar is asked to change anything, and answers what the act would do,
+# or why not, by path.
+
+CHECK = "/check"
+
+
+@pages.route(
+    CONNECT + CHECK,
+    levels="admin",
+    methods=["POST"],
+    params=records.Connecting,
+    answers=records.Portal,
+    reads=True,
+    name="check_open_connection_portal",
+    description=(
+        "Check open_connection_portal without opening anything: whether SnapTrade's "
+        "Connection Portal can be opened now, its settings given."
+    ),
+)
+async def check_open_connection_portal(request: meridian.Request) -> meridian.Response:
+    if _now().syncer.venue is None:
+        return _no_venue(request)
+    return pages.answer(
+        "connections.html",
+        records.Portal(
+            "", "Would open SnapTrade's Connection Portal, for a person to sign in."
+        ),
+    )
+
+
+@pages.route(
+    REFRESH + CHECK,
+    levels="admin",
+    methods=["POST"],
+    params=records.ConnectionAsked,
+    answers=records.Refreshed,
+    reads=True,
+    name="check_refresh_connection",
+    description=(
+        "Check refresh_connection without asking SnapTrade anything: whether the connection "
+        "is one the last read reached, and one SnapTrade serves on a delay, which may be "
+        "refreshed (SnapTrade may charge for each refresh)."
+    ),
+)
+async def check_refresh_connection(request: meridian.Request) -> meridian.Response:
+    held = _now()
+    if held.syncer.venue is None:
+        return _no_venue(request)
+    asked = _connection_asked(request)
+    if isinstance(asked, meridian.Response):
+        return asked
+    serving = {c.connection_id: c.serving for c in held.syncer.status.connections}
+    if serving[asked] is Serving.REAL_TIME:
+        pages.refuse(REAL_TIME, ("connection_id", REAL_TIME), reason="not_refreshable")
+    return pages.answer(
+        "connections.html",
+        records.Refreshed(
+            asked, "Would ask SnapTrade to read this connection's brokerage again."
+        ),
+    )
+
+
+@pages.route(
+    RECONNECT + CHECK,
+    levels="admin",
+    methods=["POST"],
+    params=records.ConnectionAsked,
+    answers=records.Portal,
+    reads=True,
+    name="check_reconnect_connection",
+    description=(
+        "Check reconnect_connection without opening anything: whether the connection is one "
+        "the last read reached, so SnapTrade's Connection Portal can open to sign in to it."
+    ),
+)
+async def check_reconnect_connection(request: meridian.Request) -> meridian.Response:
+    if _now().syncer.venue is None:
+        return _no_venue(request)
+    asked = _connection_asked(request)
+    if isinstance(asked, meridian.Response):
+        return asked
+    return pages.answer(
+        "connections.html",
+        records.Portal(
+            "", f"Would open SnapTrade's Connection Portal to sign in to {asked} again."
+        ),
+    )
+
+
+@pages.route(
+    READ + CHECK,
+    levels=["admin", "write"],
+    methods=["POST"],
+    params=records.ReadAsked,
+    answers=records.ReadStarted,
+    reads=True,
+    name="check_snaptrade_now",
+    description=(
+        "Check read_snaptrade_now without reading anything: what reading SnapTrade now "
+        "would do, every connection and account, as the plugin's settings stand."
+    ),
+)
+async def check_snaptrade_now(request: meridian.Request) -> meridian.Response:
+    status = _now().syncer.status
+    waiting = _waiting_for(status)
+    said = (
+        f"Would wait: SnapTrade is not read until its settings give {waiting}."
+        if waiting
+        else "Would read SnapTrade now, every connection and account, and record what it reads."
+    )
+    return pages.answer("statements.html", records.ReadStarted(said))
+
+
+@pages.route(
+    LINK + CHECK,
+    levels="admin",
+    methods=["POST"],
+    params=records.LinkAsked,
+    answers=records.Linked,
+    reads=True,
+    name="check_link_account",
+    description=(
+        "Check link_account without linking anything: whether the external account is one "
+        "the last read reached, and the account it would be linked to one a deployment "
+        "admin granted this plugin, open and taken by none of its other external accounts "
+        "(intent link); or a new account named by a deployment admin (intent create); or "
+        "unlinking it (intent unlink). Refused by path where not."
+    ),
+)
+async def check_link_account(request: meridian.Request) -> meridian.Response:
+    asked: records.LinkAsked = request.params
+    held, caller = _now(), request.caller
+    views = {view.account.external_account_id: view for view in held.syncer.status.accounts}
+    external_id = asked.external_account_id.strip()
+    if external_id not in views:
+        pages.refuse(
+            "No such account.",
+            ("external_account_id", "not an account the last read reached"),
+            reason="not_found",
+        )
+    if asked.intent not in INTENTS:
+        pages.refuse("Say what to do.", ("intent", "link, create or unlink"))
+    named = views[external_id].account.name or external_id
+    if asked.intent == "unlink":
+        return pages.answer(
+            "accounts.html", records.Linked(external_id, "", "", f"Would unlink {named}.")
+        )
+    if asked.intent == "create":
+        name = asked.new_account_name.strip()
+        if not caller.deployment_admin:
+            pages.refuse(
+                ONLY_DEPLOYMENT_ADMINS,
+                ("intent", ONLY_DEPLOYMENT_ADMINS),
+                reason="permission_denied",
+            )
+        if not name:
+            pages.refuse("Name the new account.", ("new_account_name", "name the new account"))
+        return pages.answer(
+            "accounts.html",
+            records.Linked(
+                external_id, "", name, f"Would create {name} and link {named} to it."
+            ),
+        )
+    account_id = asked.account_id.strip()
+    if not account_id:
+        pages.refuse("Choose the account to link it to.", ("account_id", "name the account"))
+    offered = await _offered_to(caller)
+    if offered.refused:
+        pages.refuse(
+            f"The deployment's accounts could not be read: {offered.refused}",
+            reason="unavailable",
+        )
+    granted = {account.account_id: account for account in offered.accounts}
+    if account_id not in granted:
+        pages.refuse(
+            NOT_LINKABLE,
+            ("account_id", "not an account a deployment admin granted this plugin"),
+            reason="account_not_linkable",
+        )
+    chosen = granted[account_id]
+    standing = held.links.of(external_id)
+    if not chosen.open:
+        pages.refuse("That account is closed.", ("account_id", "closed"), reason="closed")
+    if account_id in held.links.taken() and standing.account_id != account_id:
+        pages.refuse(
+            "That account is linked to another of this plugin's accounts already.",
+            ("account_id", "linked to another external account"),
+            reason="taken",
+        )
+    return pages.answer(
+        "accounts.html",
+        records.Linked(
+            external_id, account_id, chosen.name, f"Would link {named} to {chosen.label()}."
+        ),
+    )

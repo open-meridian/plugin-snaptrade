@@ -57,8 +57,28 @@ def test_every_declaration_is_one_the_sidecar_takes() -> None:
         assert setting.label and setting.description
 
 
-def test_the_key_type_is_a_required_choice_asked_first_defaulting_to_personal() -> None:
-    first = DECLARED[0]
+def test_the_settings_follow_the_custody_role_s_order() -> None:
+    """The credentials, then the role's Read every and Stale after, then
+    SnapTrade's own, then sample data last (spec/plugin-pages-follow-their-
+    role)."""
+    assert [s.name for s in DECLARED] == [
+        CLIENT_ID,
+        CONSUMER_KEY,
+        POLL_SECONDS,
+        STALE_AFTER_HOURS,
+        KEY_TYPE,
+        USER_ID,
+        USER_SECRET,
+        "plan_code_links",
+        "counted_as_cash",
+        PERSONAL_KEY,
+        SYNTHETIC,
+    ]
+    assert SYNTHETIC == "sample_data" and label(SYNTHETIC) == "Sample data"
+
+
+def test_the_key_type_is_a_required_choice_defaulting_to_personal() -> None:
+    first = BY_NAME[KEY_TYPE]
     assert first.name == KEY_TYPE and first.required and first.default == PERSONAL
     assert [(c.value, c.label) for c in first.choices] == [
         (PERSONAL, "Personal key"),
@@ -99,9 +119,9 @@ def test_reading_and_staleness_are_optional_with_a_default_and_a_unit() -> None:
     assert BY_NAME[POLL_SECONDS]._declared().default_value == "300"
 
 
-def test_synthetic_mode_and_the_old_settings_are_developer_settings() -> None:
+def test_sample_data_and_the_old_settings_are_developer_settings() -> None:
     # 0.12.0's retention settings are dropped, not hidden (test_archive.py).
-    assert [s.name for s in DECLARED if s.developer] == [SYNTHETIC, PERSONAL_KEY]
+    assert [s.name for s in DECLARED if s.developer] == [PERSONAL_KEY, SYNTHETIC]
     assert BY_NAME[SYNTHETIC].default is False
     # No default: unset has to stay unset, or the new key type would never decide.
     assert BY_NAME[PERSONAL_KEY].default is None and not BY_NAME[PERSONAL_KEY].required

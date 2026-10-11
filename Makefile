@@ -62,7 +62,7 @@ E2E_ALPACA_ACTIVITIES := 16
 # What the plugin kept of SnapTrade's raw responses for Alpaca's account, read
 # inside its container from the storage the harness grants a custody plugin
 # (decisions/028, MERIDIAN_STORAGE_DIR): the latest read's calls, by name.
-# The harness's admin holds Manage alone, so the Raw responses tab, under Open
+# The harness's admin holds Manage alone, so the Raw records tab, under Open
 # and View, is the tests' to prove (tests/test_raw.py).
 export E2E_RAW := import os; from snaptrade.raw import RawStore, storage_root; \
 	assert os.environ.get("MERIDIAN_STORAGE_DIR"), "no storage granted"; \
@@ -227,16 +227,22 @@ e2e: image
 	$(E2E) down -v --remove-orphans >>.e2e/components.log 2>&1; \
 	$(E2E) up -d >>.e2e/components.log 2>&1 || fail "the harness did not start"; \
 	$(E2E_RUN) ready >>.e2e/runner.log 2>&1 || fail "the plugin never registered"; \
-	$(E2E_RUN) settings synthetic=true >>.e2e/runner.log 2>&1 || fail "synthetic was not set"; \
+	$(E2E_RUN) settings sample_data=true >>.e2e/runner.log 2>&1 || fail "sample data was not set"; \
 	$(E2E_RUN) page --level admin /admin/accounts --until SYN-ALP-1001 >>.e2e/runner.log 2>&1 \
 		|| fail "Account links never listed Alpaca's account"; \
 	$(E2E_RUN) form --level admin --page /admin/accounts --post /admin/accounts/link \
 		intent=create external_account_id=ALPACA:SYN-ALP-1001 'new_account_name=E2E Alpaca' \
 		--expect "Created E2E Alpaca and linked" >>.e2e/runner.log 2>&1 \
 		|| fail "the Account links form did not create and link E2E Alpaca"; \
-	for i in $$(seq 1 60); do \
+	for i in $$(seq 1 90); do \
 		$(E2E_STREET) >.e2e/street 2>>.e2e/components.log || fail "store street did not print the street store"; \
 		grep -q '^statement|E2E Alpaca|snaptrade|[0-9]*|complete|' .e2e/street && break; \
+		if [ "$$i" = 30 ]; then \
+			: "TODO(v20): remove once core caps its currency pull below the resolve timeout:"; \
+			: "without a platform, core v20's first resolve of a currency can time out the read"; \
+			$(E2E_RUN) form --level admin --page /admin/accounts --post /read back=/admin/accounts \
+				--expect "Reading SnapTrade now" >>.e2e/runner.log 2>&1 || true; \
+		fi; \
 		sleep 1; \
 	done; \
 	diff -u e2e/expected.street .e2e/street >&2 \
@@ -256,7 +262,7 @@ e2e: image
 	[ -n "$$key" ] || fail "the raw responses named no read"; \
 	$(E2E_RUN) grant --level read >>.e2e/runner.log 2>&1 || fail "read on the plugin was not granted"; \
 	$(E2E_RUN) page --level read "/raw?ref=ALPACA:SYN-ALP-1001/$$key/positions" --until "The record a row references" \
-		>>.e2e/runner.log 2>&1 || fail "a holding's raw-record reference did not resolve on the Raw responses tab"; \
+		>>.e2e/runner.log 2>&1 || fail "a holding's raw-record reference did not resolve on the Raw records tab"; \
 	$(E2E) up -d --no-deps --force-recreate snaptrade >>.e2e/components.log 2>&1 || fail "the plugin's container was not made again"; \
 	kept="$$($(E2E) exec -T -e E2E_KEPT="$$key" snaptrade python -c "$$E2E_RAW_KEPT" 2>>.e2e/components.log)" \
 		|| fail "the raw responses did not survive a new container"; \
@@ -353,7 +359,7 @@ e2e: image
 		>>.e2e/runner.log 2>&1 || fail "a row's reference to the archived read did not resolve to archived, restorable"; \
 	$(E2E_RUN) grant --level write >>.e2e/runner.log 2>&1 || fail "write on the plugin was not granted"; \
 	$(E2E_RUN) form --level write --page /raw/archive --post /archive/restore record_kind=responses "unit=$$oldunit" \
-		>>.e2e/runner.log 2>&1 || fail "the Raw responses tab's archive did not restore the unit through the SDK's route"; \
+		>>.e2e/runner.log 2>&1 || fail "the Raw records tab's archive did not restore the unit through the SDK's route"; \
 	for i in $$(seq 1 60); do \
 		$(E2E) run --rm -T store moves >.e2e/moves 2>>.e2e/components.log || fail "store moves did not print the moves"; \
 		grep -q "^move|snaptrade|responses|$$oldunit|restored|1|.*||.\+$$" .e2e/moves && break; \
@@ -363,7 +369,7 @@ e2e: image
 	$(E2E_RUN) page --level read "/raw/archive" --until 'data-state="restored"' >>.e2e/runner.log 2>&1 \
 		|| fail "the archive did not list the unit restored"; \
 	$(E2E_RUN) page --level read "/raw?account=ALPACA:SYN-ALP-1001&read=$$oldkey" --until "restored from the archive" \
-		>>.e2e/runner.log 2>&1 || fail "the restored read was not read back on the Raw responses tab"; \
+		>>.e2e/runner.log 2>&1 || fail "the restored read was not read back on the Raw records tab"; \
 	$(E2E_RUN) settings responses_window_days=1 responses_past_window=deleted >>.e2e/runner.log 2>&1 \
 		|| fail "the raw responses' window was not set to a day, deleted past it"; \
 	$(E2E_RUN) hold 30 --role custody >>.e2e/runner.log 2>&1 || fail "a hold of 30 days was not set over custody"; \
@@ -390,7 +396,7 @@ e2e: image
 	$(E2E) run --rm -T store moves >.e2e/moves-again 2>>.e2e/components.log || fail "store moves did not print the moves"; \
 	diff -u .e2e/moves-held .e2e/moves-again >&2 || fail "the new container's pass recorded a move again"; \
 	moved="$$(grep -c '^move|' .e2e/moves-again)"; \
-	echo "e2e OK in $$(( $$(date +%s) - started ))s on $(RUNTIME_IMAGE) and its harness: synthetic on and E2E Alpaca linked through Account links; the street store is e2e/expected.street, nothing for the accounts left unlinked, which the dashboard counts ($$unlinked); Alpaca's history backfilled to 2025-06-02, every kind and a type as reported, as e2e/expected.activity, each sync status with its history_from, and the backfill again from a new container recorded nothing twice ($$activity); the raw responses kept in its granted storage on a read-only root ($$raw), a holding's reference resolved on the Raw responses tab, and the $$kept; then IBKR's backfill reported its reinvestment under OQKR as the code, and once OQKR was linked to SYNXX's record in the plugin's settings ($$saved) the street kept it as first recorded with its re-resolution beside it, as e2e/expected.re-resolved ($$who), and a new container's backfill re-resolved nothing twice; E2E IRA's deposit SnapTrade marks a cash equivalent sent as its cash, and once SYNFD is listed in the plugin's settings ($$listed) the next statement is two rows, USD cash 12.99, supplied by who listed it, and no SYNFD; then, allowed an archive, a read 40 days old was archived past its window of 30 days ($$where), its row's reference resolved to archived, restorable, restored on the Raw responses tab through the SDK's route for the person who asked, and read back; a read 5 days old, past a window of a day with deleted chosen, was kept inside a hold of 30 days, nothing recorded; and the new container's pass recorded nothing twice ($$moved moves in all)"
+	echo "e2e OK in $$(( $$(date +%s) - started ))s on $(RUNTIME_IMAGE) and its harness: sample data on and E2E Alpaca linked through Account links; the street store is e2e/expected.street, nothing for the accounts left unlinked, which the dashboard counts ($$unlinked); Alpaca's history backfilled to 2025-06-02, every kind and a type as reported, as e2e/expected.activity, each sync status with its history_from, and the backfill again from a new container recorded nothing twice ($$activity); the raw responses kept in its granted storage on a read-only root ($$raw), a holding's reference resolved on the Raw records tab, and the $$kept; then IBKR's backfill reported its reinvestment under OQKR as the code, and once OQKR was linked to SYNXX's record in the plugin's settings ($$saved) the street kept it as first recorded with its re-resolution beside it, as e2e/expected.re-resolved ($$who), and a new container's backfill re-resolved nothing twice; E2E IRA's deposit SnapTrade marks a cash equivalent sent as its cash, and once SYNFD is listed in the plugin's settings ($$listed) the next statement is two rows, USD cash 12.99, supplied by who listed it, and no SYNFD; then, allowed an archive, a read 40 days old was archived past its window of 30 days ($$where), its row's reference resolved to archived, restorable, restored on the Raw records tab through the SDK's route for the person who asked, and read back; a read 5 days old, past a window of a day with deleted chosen, was kept inside a hold of 30 days, nothing recorded; and the new container's pass recorded nothing twice ($$moved moves in all)"
 
 preview:
 	@$(DOCKER) build $(SDK_CONTEXT) -f Dockerfile.check --target test -t $(CHECK) . >/dev/null 2>&1

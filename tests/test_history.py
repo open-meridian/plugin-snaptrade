@@ -17,6 +17,7 @@ from typing import Any
 import meridian
 import pytest
 from meridian.testing import PageClient
+from meridian.v1 import sidecar_pb2
 
 from snaptrade import history, synthetic
 from snaptrade.linking import Links
@@ -100,6 +101,12 @@ def test_every_route_is_typed_and_offered_as_a_tool_or_says_why_not() -> None:
         "read_proposed_lots": ("GET", LOTS, True),
         "read_snaptrade_now": ("POST", READ, False),
         "read_archived_units": ("GET", RAW_ARCHIVE, True),
+        # Each act's check (contract v20): a read taking the act's record.
+        "check_open_connection_portal": ("POST", CONNECT + "/check", True),
+        "check_refresh_connection": ("POST", REFRESH + "/check", True),
+        "check_reconnect_connection": ("POST", RECONNECT + "/check", True),
+        "check_link_account": ("POST", LINK + "/check", True),
+        "check_snaptrade_now": ("POST", READ + "/check", True),
         # The SDK's, on every edge plugin's host (contract v16).
         "restore_unit": ("POST", "/archive/restore", False),
     }
@@ -146,7 +153,7 @@ def test_an_accounts_activities_over_a_range_as_snaptrade_reports_them(
     assert data["history_from"] == "2025-01-06"
     assert data["start"] == days_ago(365) and data["end"] == str(TODAY)
     assert data["total"] == 8 and data["offset"] == 0 and data["limit"] == 100
-    assert [(a["type"], a["symbol"]) for a in data["activities"]] == [
+    assert [(a["type"], a["instrument_id"]) for a in data["activities"]] == [
         ("BUY", "SYNQ"),
         ("BUY", "SYNV"),
         ("EXTERNAL_ASSET_TRANSFER_IN", "SYNB"),
@@ -158,22 +165,27 @@ def test_an_accounts_activities_over_a_range_as_snaptrade_reports_them(
     ]
     first = data["activities"][0]
     # As written: its numbers exact, as strings; its dates as SnapTrade wrote them.
+    # The custody role's fields first, in its words -- the account, the
+    # activity's ID, its kind as it converts, its dates, the instrument as
+    # SnapTrade names it, its units, its amount, its description -- then
+    # SnapTrade's own, every number as written.
     assert first == {
-        "id": "00000000-0000-4000-8000-00000000f003",
-        "type": "BUY",
-        "trade_date": f"{days_ago(300)}T00:00:00.000Z",
-        "settlement_date": f"{days_ago(299)}T00:00:00.000Z",
-        "symbol": "SYNQ",
-        "option_symbol": "",
-        "description": "Bought 20 SYNQ",
+        "account": "ACC-3",
+        "external_activity_id": "00000000-0000-4000-8000-00000000f003",
+        "kind": "purchase",
+        "trade_date": days_ago(300),
+        "settlement_date": days_ago(299),
+        "instrument_id": "SYNQ",
         "units": "20",
-        "price": "38.00",
         "amount": "-760.00",
+        "description": "Bought 20 SYNQ",
+        "type": "BUY",
+        "price": "38.00",
         "fee": "0",
         "currency": "USD",
     }
     # A transfer states no amount: none, never zero.
-    assert data["activities"][2]["amount"] is None
+    assert data["activities"][2]["amount"] == ""
     # The read is kept as the account's raw record, and the answer names it.
     assert syncer.raw is not None
     found = syncer.raw.find(data["raw_record"])
@@ -193,7 +205,10 @@ def test_a_narrower_range_reads_only_its_days_and_a_page_at_a_time(
         "read_account_activities",
         {"account": "ACC-3", "start": days_ago(130), "end": days_ago(80)},
     )
-    assert [a["id"][-4:] for a in narrow.data["activities"]] == ["f006", "f007"]
+    assert [a["external_activity_id"][-4:] for a in narrow.data["activities"]] == [
+        "f006",
+        "f007",
+    ]
     paged = client.call_tool(
         "read_account_activities",
         {
@@ -205,11 +220,14 @@ def test_a_narrower_range_reads_only_its_days_and_a_page_at_a_time(
         },
     )
     assert paged.data["total"] == 8
-    assert [a["id"][-4:] for a in paged.data["activities"]] == ["f005", "f006"]
+    assert [a["external_activity_id"][-4:] for a in paged.data["activities"]] == [
+        "f005",
+        "f006",
+    ]
     # The 30 days to today where no range is given: yesterday's SAP.DE buy.
     recent = client.call_tool("read_account_activities", {"account": "ACC-3"})
     assert recent.data["start"] == days_ago(30) and recent.data["end"] == str(TODAY)
-    assert [a["symbol"] for a in recent.data["activities"]] == ["SAP.DE"]
+    assert [a["instrument_id"] for a in recent.data["activities"]] == ["SAP.DE"]
 
 
 @pytest.mark.parametrize(
@@ -490,13 +508,17 @@ def test_the_history_tab_reads_a_range_and_offers_the_proposals(
 ) -> None:
     sidecar, _, _ = held
     client = reader(sidecar)
-    empty = client.get(HISTORY, "read")
-    assert empty.status == 200 and "Choose an account" in empty.text
-    assert "om-grid" not in empty.text
+    # With none chosen, the first account the person may read, in the role's
+    # columns.
+    first = client.get(HISTORY, "read")
+    assert first.status == 200 and "<h2>History</h2>" in first.text
+    assert '<option value="ACC-1" selected>' in first.text and "No activity yet" in first.text
     shown = client.get(HISTORY, "read", account="ACC-3", start=days_ago(365), end=str(TODAY))
     assert shown.status == 200
     assert "<strong>2025-01-06</strong>, the first transaction SnapTrade holds" in shown.text
-    assert 'id="activities"' in shown.text and "EXTERNAL_ASSET_TRANSFER_IN" in shown.text
+    for column in ("Account", "Trade date", "Settlement date", "Kind", "Instrument"):
+        assert f">{column}</th>" in shown.text
+    assert "transfer in" in shown.text
     assert f"{LOTS}?account=ACC-3" in shown.text
     refused = client.get(HISTORY, "read", account="ACC-3", end="2099-01-01")
     assert refused.status == 200 and "The range ends after today." in refused.text
@@ -543,12 +565,18 @@ def test_manage_reads_connections_and_links_and_no_accounts_data(
         "Schwab": "real_time",
         "Fidelity": "real_time",
     }
-    links = admin.call_tool("read_account_links").data["accounts"]
+    read = admin.call_tool("read_account_links").data
+    assert {each["external_account_id"] for each in read["external_accounts"]} == {
+        ALPACA,
+        IBKR,
+        SCHWAB,
+        "FIDELITY:SYN-FID-4004",
+    }
+    links = read["links"]
     assert {(each["external_account_id"], each["account_id"]) for each in links} == {
         (ALPACA, "ACC-1"),
         (IBKR, "ACC-3"),
         (SCHWAB, "ACC-4"),
-        ("FIDELITY:SYN-FID-4004", ""),
     }
     # Identities and links only: no holding, quantity or cash of an account.
     said = json.dumps([connections.json, links])
@@ -600,3 +628,142 @@ def test_manage_acts_through_tools_refused_by_path(
     started = writer.call_tool("read_snaptrade_now")
     assert started.level == "write" and started.outcome == "made"
     assert started.data == {"said": READING} and woken.is_set()
+
+
+# ── Contract v20: the custody role's common part, every act preparable ──────
+
+
+def test_every_act_names_its_check_and_its_page() -> None:
+    tools = {tool.name: tool for tool in pages.tools}
+    for act, check in (
+        ("open_connection_portal", "check_open_connection_portal"),
+        ("refresh_connection", "check_refresh_connection"),
+        ("reconnect_connection", "check_reconnect_connection"),
+        ("read_snaptrade_now", "check_snaptrade_now"),
+        ("link_account", "check_link_account"),
+    ):
+        assert tools[act].checked_by == check and tools[check].reads, act
+    assert tools["link_account"].made_on == ACCOUNTS
+    assert list(tools["link_account"].accounts) == ["account_id"]
+    assert tools["refresh_connection"].made_on == CONNECTIONS
+    assert tools["open_connection_portal"].made_on == CONNECTIONS
+
+
+def test_the_checks_answer_what_each_act_would_do_and_ask_nothing(
+    held: tuple[Sidecar, Syncer, asyncio.Event],
+) -> None:
+    sidecar, _, woken = held
+    admin = PageClient(pages, sidecar.plugin())
+    woken.clear()
+    delayed = admin.call_tool("check_refresh_connection", {"connection_id": synthetic.IBKR})
+    assert delayed.outcome == "unchanged" and delayed.data["said"].startswith("Would ask")
+    real_time = admin.call_tool("check_refresh_connection", {"connection_id": synthetic.ALPACA})
+    assert real_time.outcome == "refused" and real_time.paths == ["connection_id"]
+    unknown = admin.call_tool("check_reconnect_connection", {"connection_id": "nope"})
+    assert unknown.outcome == "refused" and unknown.paths == ["connection_id"]
+    now = admin.call_tool("check_snaptrade_now")
+    assert now.outcome == "unchanged" and now.data["said"].startswith("Would read")
+    linked = admin.call_tool(
+        "check_link_account",
+        {
+            "intent": "link",
+            "external_account_id": "FIDELITY:SYN-FID-4004",
+            "account_id": "ACC-1",
+        },
+    )
+    assert linked.outcome == "refused" and linked.json["reason"] == "taken"
+    assert sidecar.sent("LinkExternalAccount") == [] and not woken.is_set()
+
+
+def test_an_account_not_granted_is_refused_by_the_check_and_by_the_sidecar(
+    held: tuple[Sidecar, Syncer, asyncio.Event],
+) -> None:
+    sidecar, _, _ = held
+    admin = PageClient(pages, sidecar.plugin())
+    asked = {
+        "intent": "link",
+        "external_account_id": "FIDELITY:SYN-FID-4004",
+        "account_id": "ACC-9",
+    }
+    checked = admin.call_tool("check_link_account", asked)
+    assert checked.outcome == "refused" and checked.paths == ["account_id"]
+    assert checked.json["reason"] == "account_not_linkable"
+    # The sidecar's own refusal, where the page or an agent links anyway.
+
+    def not_linkable(name: str, params: Any) -> Exception | None:
+        if name != "LinkExternalAccount":
+            return None
+        return meridian.CommandRefused(
+            "LinkExternalAccount",
+            "account ACC-9 is not one a deployment admin granted snaptrade to link to",
+            sidecar_pb2.REFUSAL_REASON_ACCOUNT_NOT_LINKABLE,
+        )
+
+    sidecar._refuse = not_linkable
+    refused = admin.call_tool("link_account", asked)
+    assert refused.outcome == "refused" and refused.json["reason"] == "account_not_linkable"
+    assert refused.paths == ["account_id"]
+
+
+def test_account_links_says_none_is_granted_until_some_is(
+    held: tuple[Sidecar, Syncer, asyncio.Event],
+) -> None:
+    sidecar, _, _ = held
+    sidecar.granted = ()
+    page = PageClient(pages, sidecar.plugin()).get(ACCOUNTS, "admin").text
+    assert "No accounts granted yet" in page
+    assert "Ask a deployment admin to grant some." in page
+
+
+def test_with_a_second_pair_of_eyes_each_act_offers_prepare_alone(
+    held: tuple[Sidecar, Syncer, asyncio.Event],
+) -> None:
+    sidecar, _, _ = held
+    gated = PageClient(
+        pages,
+        sidecar.plugin(),
+        second_pair_of_eyes=["refresh_connection", "open_connection_portal", "link_account"],
+    )
+    page = gated.get(CONNECTIONS, "admin").text
+    # Connect, in the section's head, drawn as Prepare (the role template's
+    # `action`); Refresh on a row, as SnapTrade's own Prepare Refresh.
+    assert 'aria-label="Prepare: Connect a brokerage' in page
+    assert ">Connect</button>" not in page
+    assert ">Prepare Refresh</button>" in page
+    assert '<input type="hidden" name="prepare" value="1">' in page
+    links = gated.get(ACCOUNTS, "admin").text
+    assert "Needs a second person" in links and ">Link</button>" not in links
+
+
+def test_a_page_opened_from_a_prepared_change_says_what_it_asks(
+    held: tuple[Sidecar, Syncer, asyncio.Event],
+) -> None:
+    sidecar, _, _ = held
+    prepared = sidecar_pb2.PreparedCall(
+        prepared_call_id="PC-3",
+        tool_name="snaptrade__refresh_connection",
+        arguments_json=json.dumps({"connection_id": synthetic.IBKR}),
+        prepared_by_display_name="Bea",
+        reason="Its statement is a day old",
+    )
+
+    async def read_prepared(ident: str, caller: meridian.Caller) -> sidecar_pb2.PreparedCall:
+        return prepared
+
+    plugin = sidecar.plugin()
+    plugin._read_prepared = read_prepared  # type: ignore[method-assign,assignment]
+    page = PageClient(pages, plugin).request(
+        "GET", CONNECTIONS, "admin", prepared_call_id="PC-3"
+    )
+    assert "Prepared by Bea: Its statement is a day old." in page.text
+    assert f"It asks: Refresh the connection {synthetic.IBKR}." in page.text
+
+
+def test_raw_records_draws_the_role_s_kinds_section(
+    held: tuple[Sidecar, Syncer, asyncio.Event],
+) -> None:
+    sidecar, _, _ = held
+    page = reader(sidecar).get(RAW, "read").text
+    assert "<title>Raw records · SnapTrade</title>" in page and "<h2>Raw records</h2>" in page
+    for column in ("Kind", "Window", "Past the window", "In storage"):
+        assert f">{column}</th>" in page

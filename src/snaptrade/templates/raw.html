@@ -1,16 +1,20 @@
-{#- Raw responses, at write and read, on one screen: one account the person
+{#- Raw records, at write and read: the custody role's page
+    (meridian/roles/custody/raw_records.html) -- each kind of raw record kept,
+    its window, what becomes of it past the window, and how many are in
+    storage -- then, in its vendor section, SnapTrade's raw responses on one
+    screen: one account the person
     may read at a time, by three views. Its read (the latest, or the one
     asked for), each call one line with SnapTrade's JSON a click away; its
     kept reads, paged; and the archive, every unit this plugin moved past
     its window for the accounts the person may read, paged, each archived
     one restorable under Open through the SDK's route. Under Open, Refresh;
     under View, nothing to act on. Never at admin: an account's data. -#}
-{% extends "meridian/base.html" %}
-{% import "_kit.html" as kit with context %}
-{% block status %}{{ kit.status_dot(dot) }}{% endblock %}
-{% block head_actions %}{% if level == "write" and not nothing %}{{ kit.refresh(back) }}{% endif %}{% endblock %}
+{% extends "meridian/roles/custody/raw_records.html" %}
+{% import "_kit.html" as ui with context %}
+{% block status %}{{ ui.status_dot(dot) }}{% endblock %}
+{% block head_actions %}{% if level == "write" and not nothing %}{{ ui.refresh(back) }}{% endif %}{% endblock %}
 {% macro restore(unit) -%}
-{% if level == "write" %}<form method="post" action="{{ paths.restore }}" class="inline">{{ csrf_input }}<input type="hidden" name="record_kind" value="{{ unit.record_kind }}"><input type="hidden" name="unit" value="{{ unit.unit }}"><button class="small" aria-label="Restore {{ kinds[unit.record_kind] | lower }} received {{ unit.first_received.date() }}">Restore</button></form>
+{% if level == "write" %}<form method="post" action="{{ paths.restore }}" class="inline">{{ csrf_input }}<input type="hidden" name="record_kind" value="{{ unit.record_kind }}"><input type="hidden" name="unit" value="{{ unit.unit }}"><button class="small" aria-label="Restore {{ kind_labels[unit.record_kind] | lower }} received {{ unit.first_received.date() }}">Restore</button></form>
 {%- else %}<span class="hint">Restoring is under Open</span>{% endif %}
 {%- endmacro %}
 {% macro where(unit) -%}
@@ -21,7 +25,7 @@
 {% macro received(unit) -%}
 {%- if unit.first_received.date() == unit.last_received.date() %}{{ unit.first_received.date() }}{% else %}{{ unit.first_received.date() }} to {{ unit.last_received.date() }}{% endif -%}
 {%- endmacro %}
-{% block content %}
+{% block vendor_notices %}
 {% if nothing %}
 <section class="panel padded narrow">
 <h2>Nothing here for you</h2>
@@ -31,6 +35,10 @@
 {% if mode %}<div class="notice warn" role="status">{{ mode | trim }}</div>{% endif %}
 {% if notice %}<div class="notice {{ notice.tone }}" role="{{ 'alert' if notice.tone == 'bad' else 'status' }}">{{ notice.text }}{% if unit and unit.state == "archived" %} {{ restore(unit) }}{% endif %}</div>{% endif %}
 {% if failure %}<div class="notice bad" role="alert">On the last read, {{ failure }}.</div>{% endif %}
+{% endif %}
+{% endblock %}
+{% block vendor_sections %}
+{% if not nothing %}
 {% if accounts | length > 1 and view != "archive" %}
 <form method="get" action="{{ paths.raw }}" class="field-row">
 {% if view == "kept" %}<input type="hidden" name="view" value="kept">{% endif %}
@@ -39,7 +47,7 @@
 </select></label><button>Show</button></form>
 {% endif %}
 {% if accounts %}
-<nav class="tabs" aria-label="Raw responses">
+<nav class="tabs" aria-label="Raw records">
 <a class="tab{% if view == 'read' %} on{% endif %}" href="{{ account.read_href }}"{% if view == 'read' %} aria-current="page"{% endif %}>Read</a>
 <a class="tab{% if view == 'kept' %} on{% endif %}" href="{{ account.kept_href }}"{% if view == 'kept' %} aria-current="page"{% endif %}>Kept reads{% if account.total %} <span class="count">{{ account.total }}</span>{% endif %}</a>
 <a class="tab{% if view == 'archive' %} on{% endif %}" href="{{ account.archive_href }}"{% if view == 'archive' %} aria-current="page"{% endif %}>Archive{% if data and data.total %} <span class="count">{{ data.total }}</span>{% endif %}</a>
@@ -53,7 +61,7 @@
 <thead><tr><th class="wide-only">Account</th><th>Kind</th><th>Received</th><th class="num wide-only">Records</th><th>Where</th><th class="more"><span class="visually-hidden">Details</span></th></tr></thead>
 <tbody>
 {% for unit in data.units %}
-<tr data-unit="{{ unit.unit }}" data-state="{{ unit.state }}"><td class="wide-only">{{ names.get(unit.external_account_id, unit.external_account_id) }}</td><td>{{ short[unit.record_kind] }}</td><td>{{ received(unit) }}</td><td class="num wide-only">{{ unit.record_count }}</td><td>{{ where(unit) }}</td><td class="more"><details class="row-detail" name="units"><summary aria-label="Details of {{ kinds[unit.record_kind] | lower }} received {{ received(unit) }}">…</summary><div class="row-detail-pop"><h3>{{ kinds[unit.record_kind] }}, {{ received(unit) }}</h3><dl><dt>Account</dt><dd>{{ names.get(unit.external_account_id, unit.external_account_id) }} <code>{{ unit.external_account_id }}</code></dd><dt>Records</dt><dd>{{ unit.record_count }}</dd><dt>First received</dt><dd>{{ kit.when(unit.first_received) }}</dd><dt>Last received</dt><dd>{{ kit.when(unit.last_received) }}</dd><dt>Unit</dt><dd><code>{{ unit.unit }}</code></dd><dt>Where</dt><dd>{% if unit.state == "archived" %}In the archive, restorable{% elif unit.state == "restored" %}Restored, readable on the Read and Kept reads tabs{% if unit.readable_until %} until {{ unit.readable_until.date() }}{% endif %}{% else %}Deleted past its window{% endif %}</dd></dl></div></details></td></tr>
+<tr data-unit="{{ unit.unit }}" data-state="{{ unit.state }}"><td class="wide-only">{{ names.get(unit.external_account_id, unit.external_account_id) }}</td><td>{{ short[unit.record_kind] }}</td><td>{{ received(unit) }}</td><td class="num wide-only">{{ unit.record_count }}</td><td>{{ where(unit) }}</td><td class="more"><details class="row-detail" name="units"><summary aria-label="Details of {{ kind_labels[unit.record_kind] | lower }} received {{ received(unit) }}">…</summary><div class="row-detail-pop"><h3>{{ kind_labels[unit.record_kind] }}, {{ received(unit) }}</h3><dl><dt>Account</dt><dd>{{ names.get(unit.external_account_id, unit.external_account_id) }} <code>{{ unit.external_account_id }}</code></dd><dt>Records</dt><dd>{{ unit.record_count }}</dd><dt>First received</dt><dd>{{ ui.when(unit.first_received) }}</dd><dt>Last received</dt><dd>{{ ui.when(unit.last_received) }}</dd><dt>Unit</dt><dd><code>{{ unit.unit }}</code></dd><dt>Where</dt><dd>{% if unit.state == "archived" %}In the archive, restorable{% elif unit.state == "restored" %}Restored, readable on the Read and Kept reads tabs{% if unit.readable_until %} until {{ unit.readable_until.date() }}{% endif %}{% else %}Deleted past its window{% endif %}</dd></dl></div></details></td></tr>
 {% endfor %}
 </tbody>
 </table>
@@ -71,7 +79,7 @@
 <thead><tr><th>Read</th><th class="wide-only">Where</th><th class="num"><span class="visually-hidden">Download</span></th></tr></thead>
 <tbody>
 {% for read in account.reads %}
-<tr><td><a href="{{ read.href }}">{{ kit.when(read.read_at) }}</a>{% if read.restored %} <span class="badge good">Restored</span>{% endif %}</td><td class="wide-only">{% if read.restored %}Restored from the archive{% else %}In storage{% endif %}</td><td class="num"><a href="{{ read.download }}" download>JSON</a></td></tr>
+<tr><td><a href="{{ read.href }}">{{ ui.when(read.read_at) }}</a>{% if read.restored %} <span class="badge good">Restored</span>{% endif %}</td><td class="wide-only">{% if read.restored %}Restored from the archive{% else %}In storage{% endif %}</td><td class="num"><a href="{{ read.download }}" download>JSON</a></td></tr>
 {% endfor %}
 </tbody>
 </table>
@@ -83,7 +91,7 @@
 </section>
 {% elif account %}
 <section class="panel" data-account="{{ account.external_account_id }}">
-<div class="list-row one-line"><div class="grow"><span class="title">{{ account.name }}</span> <span class="meta">{{ account.where }} · <code>{{ account.external_account_id }}</code>{% if account.record %} · read {{ kit.when(account.record.read_at) }}{% if account.record.restored %} · restored from the archive{% endif %}{% if account.record.synthetic %} · synthetic, not SnapTrade{% endif %}{% endif %}</span></div>
+<div class="list-row one-line"><div class="grow"><span class="title">{{ account.name }}</span> <span class="meta">{{ account.where }} · <code>{{ account.external_account_id }}</code>{% if account.record %} · read {{ ui.when(account.record.read_at) }}{% if account.record.restored %} · restored from the archive{% endif %}{% if account.record.synthetic %} · synthetic, not SnapTrade{% endif %}{% endif %}</span></div>
 {% if account.record %}<a class="button small" href="{{ account.record.download }}" download>Download JSON</a>{% endif %}</div>
 {% if account.record %}
 <table class="one-line">
