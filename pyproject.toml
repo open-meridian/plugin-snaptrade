@@ -19,6 +19,9 @@ dependencies = [
   "snaptrade-python-sdk==13.0.27",
 ]
 
+[project.urls]
+Repository = "https://github.com/open-meridian/plugin-snaptrade"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8",
