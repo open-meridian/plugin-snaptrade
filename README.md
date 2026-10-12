@@ -5,14 +5,17 @@ accounts through [SnapTrade](https://snaptrade.com): their positions, their
 cash in each currency, and how fresh SnapTrade's data about them is. It records
 them in a deployment's street store as the custodian's view, following
 workflow W2 (holdings ingestion), and each account's activity as the
-custodian states it. It holds the `custody` role. This is release 0.14.0
+custodian states it. It holds the `custody` role. This is release 0.15.0
 (CHANGELOG.md says what each release changed). How to set it up and use it,
 for its admin and its readers, is in [docs/](docs/README.md). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.24.0`, which declares
-contract v20 (meridian-design plans/an-agents-prepared-change-waits-for-the-
-person): its pages are the custody role's common pages, drawn on the SDK's
+It is built on the SDK it pins, `open-meridian==0.25.0`, which declares
+contract v21 (meridian-design plans/a-service-account-runs-a-plugins-
+autonomous-work), whose service accounts this plugin needs none of: it
+changes nothing of the deployment's of its own accord. Since contract v20
+(meridian-design plans/an-agents-prepared-change-waits-for-the-person) its
+pages are the custody role's common pages, drawn on the SDK's
 custody templates (spec/plugin-pages-follow-their-role) -- Connections and
 Account links under Manage; Statements, History and Raw records under Open
 and View -- with the role's sections, columns, labels, settings, figures and
@@ -872,9 +875,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.24.0`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.24.0`.
-0.24.0 is not on PyPI yet: until it is released, `make ci-local` builds it
+The SDK is pinned exactly, `open-meridian==0.25.0`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.25.0`.
+0.25.0 is not on PyPI yet: until it is released, `make ci-local` builds it
 from the sibling checkout, and CI, which has none, cannot install it.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
@@ -947,6 +950,10 @@ to the accounts granted, each act's check tool, and `tests/test_contract.py`
 knowing what v19 and v20 add that custody does not call (trades and quotes,
 `list_trades(latest_recorded=)`, `receive(trades_recorded=,
 quotes_recorded=)`).
+Moving to 0.25.0 (contract v21) moved only the pins, as `meridian plugin
+migrate --to 0.25.0` moves them, rewriting nothing: a service account runs
+a plugin's autonomous work (`meridian.runs_as`), and this plugin has none
+that changes the deployment.
 To move to a new SDK release, change all three together and run
 `make ci-local`; `tests/test_contract.py` fails on any operation or parameter
 the new SDK has that this plugin does not know, naming it.

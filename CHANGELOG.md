@@ -3,6 +3,16 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
+## 0.15.0 (not released)
+
+Contract v21, on open-meridian 0.25.0 (meridian-design plans/a-service-
+account-runs-a-plugins-autonomous-work).
+
+- **The pins**: moved as `meridian plugin migrate --to 0.25.0` moves them,
+  rewriting nothing. Contract v21 lets a plugin's autonomous work act as its
+  role's service account; this plugin changes nothing of the deployment's of
+  its own accord, so nothing else changes.
+
 ## 0.14.0 (not released)
 
 Contract v20, on open-meridian 0.24.0 (meridian-design plans/an-agents-
