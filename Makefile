@@ -33,8 +33,9 @@ MERIDIAN_VERSION := $(shell sed -n 's/^ *MERIDIAN_VERSION: *\([0-9][0-9.]*\).*/\
 # chooses, and with the SDK when a contract version changes. `make e2e
 # RUNTIME_IMAGE=...:latest HARNESS_IMAGE=...:latest` tries a newer core;
 # e2e-latest.yaml does that weekly.
-RUNTIME_IMAGE ?= ghcr.io/open-meridian/meridian-runtime:93f9554@sha256:94c44adc1242c7b0932cdd9387e719107920504e806844c31c32bbeb916a2ed1
-HARNESS_IMAGE ?= ghcr.io/open-meridian/meridian-harness:93f9554@sha256:c937810eb6fd8e9fa25ac7f19cedd2042a9cf7b519757b904fc77d890313fb5e
+# Core 6202b4a, contract v21, by tag and its digest.
+RUNTIME_IMAGE ?= ghcr.io/open-meridian/meridian-runtime:6202b4a@sha256:854d866396de5f2f0c39b0ad3b1bd8b283f1549bb86d9684db71283988821012
+HARNESS_IMAGE ?= ghcr.io/open-meridian/meridian-harness:6202b4a@sha256:f8346eadc65a5194331af2ee277dddbbdc6bcbeeca7ac196cb7ac7990bed8090
 # Its roles as pyproject.toml declares them (a JSON list's items), so the
 # harness launches it as `meridian plugin upload` would.
 ROLES := $(shell sed -n 's/^roles *= *\[\(.*\)\]/\1/p' pyproject.toml | tr -d ' ')
