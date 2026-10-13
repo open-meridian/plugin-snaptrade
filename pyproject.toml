@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snaptrade"
-version = "0.15.0"
-description = "Holdings, cash and sync state from brokerages through SnapTrade, for an Open Meridian deployment"
+version = "0.16.0"
+description = "Holdings, cash and sync state from brokerages through SnapTrade, and orders placed at them, for an Open Meridian deployment"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 # The SDK and nothing else of Meridian's, pinned exactly: the sidecar this runs
@@ -15,7 +15,7 @@ requires-python = ">=3.11"
 # SnapTrade's own SDK is the one third-party dependency, pinned exactly too,
 # and only src/snaptrade/venue.py imports it.
 dependencies = [
-  "open-meridian==0.25.0",
+  "open-meridian==0.26.0",
   "snaptrade-python-sdk==13.0.27",
 ]
 
@@ -43,11 +43,13 @@ snaptrade = ["templates/*.html"]
 # What this plugin says about itself, which `meridian plugin upload` sends and
 # a deployment admin approves before it runs (W8). Declarations, not grants.
 [tool.meridian]
-# Roles from the deployment's fixed list -- ccm, compliance, custody, dgm, ems,
-# match, oms, operations, portfolio, reporting, servicing, settlement, signal
-# -- and its grants are theirs. `custody`: it reports sync status and records
-# holdings statements, W2's steps.
-roles = ["custody"]
+# Roles from the deployment's fixed list -- compliance, confirmation,
+# connectivity, custody, data, ems, oms, operations, portfolio, reporting,
+# servicing, settlement, signal -- and its grants are theirs. `custody`: it
+# reports sync status and records holdings statements, W2's steps.
+# `connectivity` (contract v22, W11): it places the placements naming it at
+# SnapTrade's trading API and reports what SnapTrade did with them.
+roles = ["custody", "connectivity"]
 # Whether it serves a page through its sidecar.
 interface = true
 # Its declaration (contract v11): its secret settings' names, what it receives

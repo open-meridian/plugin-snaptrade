@@ -40,6 +40,12 @@ activity of each type the plugin converts to a kind and one it converts to
 none (contract v14, activities.py), for its backfill to report.
 
 The tests hold every response here to SnapTrade's own models.
+
+Trading (contract v22) is a simulated brokerage behind SnapTrade's trading
+API (synthetic_orders.py): a connection is read-only until trading is
+enabled on it, which here stands in for reconnecting it through the
+Connection Portal; its orders are kept in the plugin's storage, so they
+outlive a restart. SIMULATED ONLY: nothing reaches SnapTrade or a brokerage.
 """
 
 from __future__ import annotations
@@ -49,7 +55,16 @@ from datetime import date, datetime, timedelta
 from string import Template
 from typing import Any
 
-from .venue import ActivityPage, Json, VenueError, activity_page_of, parse_exact, utc_now
+from .synthetic_orders import SyntheticTrading
+from .venue import (
+    ActivityPage,
+    Json,
+    OrderAsked,
+    VenueError,
+    activity_page_of,
+    parse_exact,
+    utc_now,
+)
 
 USER_ID = "synthetic-user"
 
@@ -536,8 +551,13 @@ class SyntheticVenue:
     Alpaca account is current, the IBKR one is a day old, and Schwab's is five
     days old, whenever it runs."""
 
-    def __init__(self, now: Callable[[], datetime] = utc_now) -> None:
+    def __init__(
+        self, now: Callable[[], datetime] = utc_now, trading: SyntheticTrading | None = None
+    ) -> None:
         self._now = now
+        # The simulated brokerage's orders (synthetic_orders.py), in the
+        # process unless the plugin's storage is given for them.
+        self.trading = trading if trading is not None else SyntheticTrading(now)
 
     def __repr__(self) -> str:
         return "SyntheticVenue()"
@@ -569,6 +589,11 @@ class SyntheticVenue:
 
     async def connections(self) -> list[Json]:
         body: list[Json] = self._json(_CONNECTIONS)
+        # A connection trading was enabled on is listed as SnapTrade lists one
+        # reconnected with trading access.
+        for connection in body:
+            if self.trading.trading(str(connection.get("id", ""))):
+                connection["type"] = "trade"
         return body
 
     async def accounts(self) -> list[Json]:
@@ -596,6 +621,8 @@ class SyntheticVenue:
             # quantities say so, and its history cannot be read either.
             raise VenueError("reading activities")
         listed = [self._json(Template(each)) for each in _ACTIVITIES.get(account_id, [])]
+        # What the simulated brokerage charged since (a cancel's fee).
+        listed += self.trading.activities(account_id)
         return [
             activity
             for activity in listed
@@ -619,9 +646,27 @@ class SyntheticVenue:
             }
         )
 
-    async def connection_portal(self, reconnect: str | None = None) -> str:
-        # There is no portal without a key; the page says so.
+    async def connection_portal(self, reconnect: str | None = None, trade: bool = False) -> str:
+        # There is no portal without a key; the page says so. Enabling trading
+        # on a connection takes effect at once, as reconnecting it through the
+        # portal with trading access would.
+        if trade and reconnect:
+            self.trading.enable_trading(reconnect)
         return ""
+
+    def _outside_at(self, account_id: str) -> str:
+        """When the order the brokerage took outside the platform was placed,
+        on the one account that has it (synthetic_orders.py)."""
+        return self._times()["yesterday"] if account_id == ALPACA_MARGIN else ""
+
+    async def place(self, account_id: str, asked: OrderAsked) -> Json:
+        return self.trading.place(account_id, asked, self._outside_at(account_id))
+
+    async def orders(self, account_id: str) -> list[Json]:
+        return self.trading.orders(account_id, self._outside_at(account_id))
+
+    async def cancel(self, account_id: str, brokerage_order_id: str) -> Json:
+        return self.trading.cancel(account_id, brokerage_order_id)
 
     async def refresh(self, connection_id: str) -> str:
         return "Synthetic mode: nothing was asked of SnapTrade."

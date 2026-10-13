@@ -20,6 +20,14 @@ accounts are linked, and to what, it reads beside its account scope, holding
 the first delivery before its pages are served and each one after
 (linking.py).
 
+From contract v22 it is also a connectivity plugin (trading.py): it hears
+each placement naming its instance, places it at SnapTrade's trading API in
+the account its venue account code names, and reports what SnapTrade did
+with it, polling SnapTrade for each working order; it honours the trading
+instructions in force, and publishes what SnapTrade offers per account.
+Synthetic mode trades with a simulated brokerage (synthetic_orders.py), never
+SnapTrade.
+
 Everything goes through the sidecar. The SnapTrade credentials arrive as the
 plugin's own secret settings, set by an admin of the plugin in the dashboard,
 and are never logged, shown or sent anywhere but SnapTrade.
@@ -43,6 +51,7 @@ from .page import TITLE, pages, serve
 from .raw import RawStore, storage_root
 from .settings import DECLARED, config_from
 from .sync import Syncer
+from .trading import POLL_SECONDS, SYNTHETIC_POLL_SECONDS, Sent, Trader, sent_file
 
 log = logging.getLogger("snaptrade")
 
@@ -87,6 +96,18 @@ async def poll(syncer: Syncer, configured: asyncio.Event, wake: asyncio.Event) -
             log.warning("this read stopped: %s", failed)
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(wake.wait(), timeout=syncer.config.poll_seconds)
+
+
+async def trade(trader: Trader, syncer: Syncer) -> None:
+    """The connectivity role's work, beside the custody reads; a refusal it
+    meets is logged, and the custody reads go on (a deployment that has not
+    approved the role refuses its reads)."""
+    try:
+        await trader.run(
+            lambda: SYNTHETIC_POLL_SECONDS if syncer.config.synthetic else POLL_SECONDS
+        )
+    except meridian.MeridianError as failed:
+        log.warning("trading stopped: %s", failed)
 
 
 async def run() -> None:
@@ -135,6 +156,21 @@ async def run() -> None:
             asyncio.create_task(watch_settings(plugin, syncer, configured, wake)),
             asyncio.create_task(poll(syncer, configured, wake)),
         ]
+        if "connectivity" in plugin.identity.roles:
+            trader = Trader(
+                plugin,
+                lambda: syncer.venue,
+                now=syncer.now,
+                raw=syncer.raw,
+                synthetic=lambda: syncer.config.synthetic,
+                secrets=lambda: (
+                    syncer.config.credentials.secrets()
+                    if syncer.config.credentials is not None
+                    else ()
+                ),
+                sent=Sent(sent_file(syncer.raw)),
+            )
+            tasks.append(asyncio.create_task(trade(trader, syncer)))
         await stopped.wait()
         log.info("stopping")
         for task in tasks:

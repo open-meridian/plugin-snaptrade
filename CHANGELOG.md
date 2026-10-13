@@ -3,6 +3,40 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
+## 0.16.0 (not released)
+
+Contract v22, on open-meridian 0.26.0 (meridian-design plans/an-order-
+reaches-a-venue-through-the-book, build row 16).
+
+- **The pins**: moved as `meridian plugin migrate --to 0.26.0` moves them,
+  rewriting nothing.
+- **`connectivity`, beside `custody`** (README, "Trading"): the placements
+  naming its instance placed at SnapTrade's trading API in the account the
+  venue account code names; acknowledgements, rejections (`unsupported`,
+  `venue rejected` as reported), outcome unknown resolved by asking, never
+  by sending again, cancels, expiries; fills inferred from SnapTrade's
+  filled quantity, each with a derived ID and the date read's settlement
+  date; busts from a later read; a cancel's fee from the activities; pause
+  and stop honoured, a stop's cancels reported naming the stop; the venue's
+  catalogue per venue account code; orders placed at the brokerage directly
+  recorded and placed on itself. Every request and answer kept as a raw
+  record. Synthetic mode trades with a simulated brokerage
+  (`synthetic_orders.py`), never SnapTrade.
+- **Enable trading** on Connections, per connection, by an admin of the
+  `connectivity` role (`enable_trading`, checked by `check_enable_trading`):
+  SnapTrade's Connection Portal reconnects the brokerage with trading
+  access. A connection is read-only until then.
+- **Every page names the roles it serves** (two roles, contract v15):
+  Connections and its way in for `custody` and `connectivity`, every other
+  for `custody`, whose pages read the custody role's accounts.
+- **The suites**: the connectivity suite, 23 cases passing and six not
+  presented with why (no calendar read, no locate, no place of execution,
+  nothing depending on whether releases wait for compliance); the custody
+  suite's `asks-for-a-settlement-date` from the fill path, its
+  `reads-a-calendar` not presented.
+- **The declaration**: SnapTrade's order record's `trailing_stop` and
+  `child_brokerage_order_ids`, received and not carried.
+
 ## 0.15.0 (not released)
 
 Contract v21, on open-meridian 0.25.0 (meridian-design plans/a-service-

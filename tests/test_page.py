@@ -357,7 +357,8 @@ def test_the_pages_at_admin_are_refused_under_open_and_view(
     for caller in (READER, WRITER, NOBODY):
         for path in ("/admin", *ADMIN_TABS):
             status, _, body = ask(server, "GET", path, caller)
-            assert status == 403 and "is not served under" in body
+            # Two roles (contract v15): the refusal names the role it serves.
+            assert status == 403 and "under Manage" in body and "this session holds" in body
             assert "Alpaca" not in body and ALPACA not in body
     assert sidecar.sent("ReadAccountsForLinking") == []
 
@@ -565,7 +566,7 @@ def test_refresh_under_open_reads_now_and_answers_with_statements(
 
 def test_view_reads_nothing_now(server: int, woken: asyncio.Event) -> None:
     status, _, body = ask(server, "POST", READ, READER, form(csrf=token_of(READER)))
-    assert status == 403 and "not served under View" in body
+    assert status == 403 and "for custody under Manage and Open" in body
     assert not woken.is_set()
 
 
@@ -656,11 +657,11 @@ class Recording(SyntheticVenue):
         self.asked.append(f"refresh {connection_id}")
         return await super().refresh(connection_id)
 
-    async def connection_portal(self, reconnect: str | None = None) -> str:
-        self.asked.append(f"portal {reconnect}")
+    async def connection_portal(self, reconnect: str | None = None, trade: bool = False) -> str:
+        self.asked.append(f"portal {reconnect}" + (" trade" if trade else ""))
         if self._portal is not None:
             return self._portal
-        return await super().connection_portal(reconnect)
+        return await super().connection_portal(reconnect, trade)
 
 
 @pytest.fixture
@@ -1369,7 +1370,7 @@ def test_linking_is_only_under_manage(server: int, sidecar: Sidecar) -> None:
                 new_account_name="Mine",
             )
             status, _, body = ask(server, "POST", LINK, caller, fields)
-            assert status == 403 and "is not served under" in body
+            assert status == 403 and "for custody under Manage" in body
     assert nothing_linked_or_read(sidecar)
 
 

@@ -11,3 +11,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp:uid=65532,gid=65532,mode=1777
+  # The desk the order path places from (contract v22): a stand-in holding
+  # portfolio, oms and ems, run from this plugin's image (e2e/desk.py).
+  desk:
+    entrypoint: ["python", "-u", "/e2e/desk.py"]
+    read_only: true
+    volumes:
+      - ${E2E_DIR:?set E2E_DIR to this repository's e2e directory, absolute}:/e2e:ro
