@@ -16,6 +16,7 @@ import pytest
 from snaptrade.settings import Credentials
 from snaptrade.venue import (
     ActivityPage,
+    OrderAsked,
     SnapTradeVenue,
     VenueError,
     activity_page_of,
@@ -214,8 +215,17 @@ class OneAccountFails:
     ) -> ActivityPage:
         return activity_page_of({"data": []})
 
-    async def connection_portal(self, reconnect: str | None = None) -> str:
+    async def connection_portal(self, reconnect: str | None = None, trade: bool = False) -> str:
         return ""
+
+    async def place(self, account_id: str, asked: OrderAsked) -> dict[str, Any]:
+        return {}
+
+    async def orders(self, account_id: str) -> list[dict[str, Any]]:
+        return []
+
+    async def cancel(self, account_id: str, brokerage_order_id: str) -> dict[str, Any]:
+        return {}
 
     async def refresh(self, connection_id: str) -> str:
         return ""

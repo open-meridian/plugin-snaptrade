@@ -53,6 +53,7 @@ POSITION = "snaptrade:position"
 LOT = "snaptrade:tax-lot"
 ACCOUNT = "snaptrade:account"
 ACTIVITY = "snaptrade:activity"
+ORDER = "snaptrade:order"
 
 #: Each name not carried, with why: none has a meaning in the contract yet.
 NOT_CARRIED = (
@@ -62,6 +63,10 @@ NOT_CARRIED = (
     NotCarried("custody", ACCOUNT, "is_paper", "no_contract_meaning"),
     NotCarried("custody", ACTIVITY, "fee", "no_contract_meaning"),
     NotCarried("custody", ACTIVITY, "fx_rate", "no_contract_meaning"),
+    # Contract v22 (trading.py): what SnapTrade's order record states that a
+    # placement has no place for.
+    NotCarried("connectivity", ORDER, "trailing_stop", "no_contract_meaning"),
+    NotCarried("connectivity", ORDER, "child_brokerage_order_ids", "no_contract_meaning"),
 )
 
 DECLARATION = Declaration(
@@ -104,6 +109,15 @@ def _stated(value: object) -> bool:
         return to_decimal(value, "a value") != 0
     except ValueError:
         return True
+
+
+def seen_in_order(order: dict[str, object]) -> list[tuple[str, str]]:
+    """The names not carried one of SnapTrade's order records shows."""
+    return [
+        (ORDER, name)
+        for name in ("trailing_stop", "child_brokerage_order_ids")
+        if order.get(name) not in (None, "", [], {})
+    ]
 
 
 def seen(snapshot: Snapshot) -> list[tuple[str, str]]:

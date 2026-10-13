@@ -11,10 +11,19 @@ then reads its accounts every few minutes.
 
 ## Its role
 
-It holds one role, **custody**: it brings in the custodian's view of an
-account. It does not keep your own book, value your positions or trade. Your
+It holds two roles. **Custody**: it brings in the custodian's view of an
+account. It does not keep your own book or value your positions. Your
 book is kept by an operations plugin, such as the sample operations plugin,
 which compares the two and shows each difference.
+
+**Connectivity**, from version 0.16.0: it places the orders your execution
+plugin (an `ems`) sends it at SnapTrade, in the brokerage account the order
+names, and reports what SnapTrade did with each: accepted, filled, cancelled,
+rejected and why. It trades only on a connection where an admin enabled
+trading (see [Setup](setup.md)); every connection starts read-only. It sends
+nothing new while trading is paused or stopped, and a stop cancels what it is
+working at SnapTrade at once. In sample data it trades with a simulated
+brokerage, never SnapTrade.
 
 ## What it reads
 

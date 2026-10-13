@@ -58,6 +58,7 @@ from .plan_codes import changed_accounts
 from .raw import RawStore, Taken, activity_key, activity_taken, taken
 from .settings import Config
 from .synthetic import SyntheticVenue
+from .synthetic_orders import SyntheticTrading
 from .venue import (
     MOST_PER_PAGE,
     Json,
@@ -149,11 +150,17 @@ def figures(status: Status) -> list[meridian.Figure]:
     )
 
 
-def venue_for(config: Config, now: Callable[[], datetime] = utc_now) -> Venue | None:
+def venue_for(
+    config: Config,
+    now: Callable[[], datetime] = utc_now,
+    trading: SyntheticTrading | None = None,
+) -> Venue | None:
     """Synthetic when asked for, SnapTrade when every credential is given,
-    and nothing otherwise: there is no default key to fall back on."""
+    and nothing otherwise: there is no default key to fall back on. The
+    synthetic venue's simulated brokerage is `trading`, kept across settings
+    deliveries, as a brokerage's orders are."""
     if config.synthetic:
-        return SyntheticVenue(now)
+        return SyntheticVenue(now, trading)
     if config.credentials is not None:
         return SnapTradeVenue(config.credentials)
     return None
@@ -187,7 +194,15 @@ class Syncer:
         self._keeper = Keeper(plugin, raw, now) if raw is not None else None
         self._recorder = Recorder(plugin)
         self._now = now
-        self._make_venue = make_venue or (lambda config: venue_for(config, now))
+        # The simulated brokerage synthetic mode trades with, its orders kept
+        # in the plugin's storage beside the raw records (synthetic_orders.py).
+        self._synthetic_trading = SyntheticTrading(
+            now,
+            raw.root.parent / "synthetic-venue" / "orders.json" if raw is not None else None,
+        )
+        self._make_venue = make_venue or (
+            lambda config: venue_for(config, now, self._synthetic_trading)
+        )
         self.config: Config = Config()
         self.venue: Venue | None = None
         self.status = Status()

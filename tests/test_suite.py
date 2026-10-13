@@ -32,6 +32,7 @@ from snaptrade.linking import Links
 from snaptrade.normalise import ns, views
 from snaptrade.raw import activity_key
 from snaptrade.venue import Snapshot
+from trading_cases import placed_and_filled
 
 from conftest import NOW
 
@@ -280,7 +281,18 @@ FUND = position(
     instrument={"kind": "mutualfund", "description": "Synthetic money market fund"},
 )
 
+#: Contract v22's calendar case SnapTrade does not present, and why.
+NOT_PRESENTED = {
+    "reads-a-calendar": (
+        "SnapTrade asks the date read for each fill's settlement date (ComputeDate); it "
+        "reads no calendar's days"
+    ),
+}
+
 PRODUCERS: dict[str, Callable[[Recorder], Coroutine[Any, Any, None]]] = {
+    # Contract v22: the plugin's fill path (trading.py) asks each fill's
+    # settlement date of the date read, SnapTrade's order stating none.
+    "asks-for-a-settlement-date": placed_and_filled,
     "sync-current": reading(),
     "sync-stale": reading(
         account_=account(holdings={"last_successful_sync": "2026-09-20T00:00:00Z"})
@@ -398,12 +410,17 @@ PRODUCERS: dict[str, Callable[[Recorder], Coroutine[Any, Any, None]]] = {
 
 
 def test_every_case_of_the_custody_suite_passes() -> None:
-    """Every case, none declared not presented: the canonical role is the
-    requirement (the product owner, 2026-10-02 and 2026-10-03)."""
-    report = run("custody", PRODUCERS, instance_id="snaptrade")
+    """Every case but one: the canonical role is the requirement (the product
+    owner, 2026-10-02 and 2026-10-03). Contract v22's `reads-a-calendar`
+    (`about` calendars) is not presented: SnapTrade reads no calendar's days.
+    Its `asks-for-a-settlement-date` is the plugin's own fill path: SnapTrade's
+    order states no settlement date, so each fill asks the date read."""
+    report = run("custody", PRODUCERS, not_presented=NOT_PRESENTED, instance_id="snaptrade")
     assert report.passed, report.failures
-    assert not report.not_presented
-    assert set(report.passed_cases) == {case.name for case in suite("custody").cases}
+    assert report.not_presented == NOT_PRESENTED
+    assert set(report.passed_cases) == {
+        case.name for case in suite("custody").cases if case.name not in NOT_PRESENTED
+    }
 
 
 def sent_sync(read: Callable[[Recorder], Coroutine[Any, Any, None]]) -> Any:
@@ -480,5 +497,5 @@ def test_a_mutation_sending_stale_for_holdings_unavailable_fails_the_suite(
     mutated = {**contract._SYNC_STATE}
     mutated[SyncState.HOLDINGS_UNAVAILABLE] = meridian.SyncState.SYNC_STATE_STALE
     monkeypatch.setattr(contract, "_SYNC_STATE", mutated)
-    report = run("custody", PRODUCERS, instance_id="snaptrade")
+    report = run("custody", PRODUCERS, not_presented=NOT_PRESENTED, instance_id="snaptrade")
     assert set(report.failures) == {"sync-holdings-unavailable"}

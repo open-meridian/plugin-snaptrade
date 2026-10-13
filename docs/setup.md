@@ -115,6 +115,19 @@ in that currency, naming who listed it.
   rises. Your operations plugin shows that as a difference for a person to
   confirm.
 
+## 5. Trading, only if you place orders through it
+
+A connection is read-only until trading is enabled on it. To place orders
+through SnapTrade, an admin of the plugin's **connectivity** role opens
+Connections and presses **Enable trading** on the connection: SnapTrade's
+Connection Portal opens to sign in to that brokerage again with trading
+access. The connection's account links stay as they were. In sample data it
+takes effect at once.
+
+Then your execution plugin's admin maps each account the desk trades to the
+code this plugin names it by: the external account shown on Account links
+(for example `ALPACA:SYN-ALP-1001` in sample data).
+
 ## Agents
 
 An agent you delegate to can connect a brokerage, link accounts and read

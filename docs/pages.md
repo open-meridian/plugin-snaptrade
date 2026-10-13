@@ -43,6 +43,9 @@ Each brokerage connection: its health and what to do about it.
 
 It also lists the SnapTrade users under the key.
 
+Under Manage, an admin of the plugin's connectivity role sees Connections
+too, with **Enable trading** on each read-only connection (Setup, step 5).
+
 ### Account links
 
 Every account the connections reach, each with its name, brokerage, type,

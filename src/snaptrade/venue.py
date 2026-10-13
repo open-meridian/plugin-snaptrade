@@ -12,6 +12,19 @@ Two implementations: `SnapTradeVenue` here, the only module that imports
 SnapTrade's SDK, and `synthetic.SyntheticVenue`, which serves built-in
 responses of the same shape. Tests substitute either.
 
+**Trading** (contract v22; trading.py). An order is placed through
+SnapTrade's `POST /trade/place` (`place`), carrying the placement's own ID as
+its client order ID; an account's orders are read through `GET
+/accounts/{accountId}/orders` (`orders`), each as SnapTrade's order record;
+and a cancel is `POST /accounts/{accountId}/trading/cancel` (`cancel`). A
+call SnapTrade answered with a refusal (a 4xx) is a `VenueError` that was
+`answered`, with SnapTrade's own error code and words in `said`, credentials
+never among them; one it did not answer (no reply, a 5xx) is not, and the
+plugin then asks SnapTrade what became of the order, never sending it again.
+Enabling trading on a connection (step 5's Q10) is the Connection Portal
+opened to reconnect it with trading access (`connection_portal(...,
+trade=True)`).
+
 Credentials never leave this module except as SnapTrade's SDK sends them. A
 failed call is described by what was asked, the exception's type and the HTTP
 status, and nothing else: the SDK sends the user secret as a query parameter,
@@ -40,16 +53,60 @@ MOST_PER_PAGE = 1000
 
 
 class VenueError(Exception):
-    """A call to SnapTrade failed. Its text is safe to log and show."""
+    """A call to SnapTrade failed. Its text is safe to log and show.
 
-    def __init__(self, asked: str, failed: BaseException | None = None) -> None:
+    `answered` is whether SnapTrade answered it with a refusal (an HTTP status
+    from 400 to 499), and `said` SnapTrade's own `code` and `detail` from that
+    answer, where it gave them: the venue's words, kept as reported and never
+    a credential (each is redacted by raw.py before it is kept or sent)."""
+
+    def __init__(
+        self,
+        asked: str,
+        failed: BaseException | None = None,
+        said: Json | None = None,
+        status: int | None = None,
+    ) -> None:
         self.asked = asked
-        self.status = _status(failed) if failed is not None else None
+        self.status = (
+            status if status is not None else (_status(failed) if failed is not None else None)
+        )
+        self.said: Json = dict(said) if said is not None else _said(failed)
         kind = type(failed).__name__ if failed is not None else "no answer"
-        said = f"{asked} failed: {kind}"
+        text = f"{asked} failed: {kind}"
         if self.status is not None:
-            said += f" (HTTP {self.status})"
-        super().__init__(said)
+            text += f" (HTTP {self.status})"
+        super().__init__(text)
+
+    @property
+    def answered(self) -> bool:
+        """SnapTrade answered and refused: never to be read as no answer."""
+        return self.status is not None and 400 <= self.status < 500
+
+
+def _said(failed: BaseException | None) -> Json:
+    """SnapTrade's `code` and `detail` from a refusal's body, each a short
+    string, or nothing: the body is read only for those two fields."""
+    if failed is None:
+        return {}
+    for holder in (failed, getattr(failed, "api_response", None)):
+        body = getattr(holder, "body", None)
+        raw = getattr(getattr(holder, "response", None), "data", None)
+        for candidate in (body, raw):
+            if isinstance(candidate, (bytes, str)) and candidate:
+                try:
+                    candidate = parse_exact(candidate)
+                except ValueError:
+                    continue
+            if isinstance(candidate, dict):
+                kept = {
+                    name: str(candidate[name])[:200]
+                    for name in ("code", "detail")
+                    if isinstance(candidate.get(name), (str, int))
+                }
+                if kept:
+                    return kept
+    return {}
 
 
 def _status(failed: BaseException) -> int | None:
@@ -98,8 +155,23 @@ class Venue(Protocol):
         them, with the total it says there are."""
         ...
 
-    async def connection_portal(self, reconnect: str | None = None) -> str:
-        """A Connection Portal link: to connect a brokerage, or to reconnect one."""
+    async def connection_portal(self, reconnect: str | None = None, trade: bool = False) -> str:
+        """A Connection Portal link: to connect a brokerage, or to reconnect
+        one; with `trade`, to reconnect one with trading access (step 5's Q10:
+        a connection is read-only until trading is enabled on it)."""
+        ...
+
+    async def place(self, account_id: str, asked: OrderAsked) -> Json:
+        """`POST /trade/place`: the order placed, SnapTrade's order record of it."""
+        ...
+
+    async def orders(self, account_id: str) -> list[Json]:
+        """`GET /accounts/{accountId}/orders`: the account's orders of the
+        last `ORDER_DAYS`, every state, each as SnapTrade's order record."""
+        ...
+
+    async def cancel(self, account_id: str, brokerage_order_id: str) -> Json:
+        """`POST /accounts/{accountId}/trading/cancel`: SnapTrade's answer."""
         ...
 
     async def refresh(self, connection_id: str) -> str:
@@ -109,6 +181,48 @@ class Venue(Protocol):
         may be charged. On a Real-time plan SnapTrade refuses one for a
         real-time connection: a VenueError whose `status` is 403."""
         ...
+
+
+#: How far back an account's orders are read: a good-till-cancelled order
+#: SnapTrade still works, and the fills and cancels of the month.
+ORDER_DAYS = 30
+
+
+@dataclass(frozen=True)
+class OrderAsked:
+    """One order as SnapTrade's `POST /trade/place` takes it, in its own words:
+    `action` BUY or SELL, `order_type` Market, Limit, Stop or StopLimit,
+    `time_in_force` Day, GTC, FOK, IOC or GTD, the ticker SnapTrade names it
+    by, the units and prices as Decimals, and the client order ID, which is
+    the placement's own (W11.10's identifiers)."""
+
+    action: str
+    order_type: str
+    time_in_force: str
+    symbol: str
+    units: Decimal
+    client_order_id: str
+    price: Decimal | None = None
+    stop: Decimal | None = None
+    expiry_date: date | None = None
+
+    def body(self) -> Json:
+        """The request as SnapTrade's API documents it, numbers as their text."""
+        body: Json = {
+            "action": self.action,
+            "order_type": self.order_type,
+            "time_in_force": self.time_in_force,
+            "symbol": self.symbol,
+            "units": str(self.units),
+            "client_order_id": self.client_order_id,
+        }
+        if self.price is not None:
+            body["price"] = str(self.price)
+        if self.stop is not None:
+            body["stop"] = str(self.stop)
+        if self.expiry_date is not None:
+            body["expiry_date"] = self.expiry_date.isoformat()
+        return body
 
 
 @dataclass(frozen=True)
@@ -331,12 +445,13 @@ class SnapTradeVenue:
 
         return activity_page_of(await self._call("reading activities", call))
 
-    async def connection_portal(self, reconnect: str | None = None) -> str:
+    async def connection_portal(self, reconnect: str | None = None, trade: bool = False) -> str:
         body = await self._call(
             "opening the Connection Portal",
             lambda: self._sdk.authentication.login_snap_trade_user(
-                # Read-only: this plugin is a custody connector and never trades.
-                connection_type="read",
+                # Read-only unless trading is being enabled on a connection
+                # (step 5's Q10): a new connection never trades.
+                connection_type="trade" if trade else "read",
                 **({"reconnect": reconnect} if reconnect else {}),
                 **self._user(),
             ),
@@ -355,6 +470,60 @@ class SnapTradeVenue:
         )
         detail = body.get("detail") if isinstance(body, dict) else None
         return detail if isinstance(detail, str) else "SnapTrade will read it again."
+
+    async def place(self, account_id: str, asked: OrderAsked) -> Json:
+        # SnapTrade's SDK takes its numbers as floats: each is given from its
+        # Decimal's text, which a price or a unit count of the precision a
+        # brokerage takes survives exactly (JSON writes a float's shortest
+        # text). What SnapTrade answered is re-read exactly.
+        def number(value: Decimal | None) -> float | None:
+            return None if value is None else float(str(value))
+
+        body = await self._call(
+            "placing an order",
+            lambda: self._sdk.trading.place_force_order(
+                account_id=account_id,
+                action=asked.action,
+                order_type=asked.order_type,
+                time_in_force=asked.time_in_force,
+                symbol=asked.symbol,
+                units=number(asked.units),
+                price=number(asked.price),
+                stop=number(asked.stop),
+                client_order_id=asked.client_order_id,
+                **(
+                    {
+                        "expiry_date": datetime.combine(
+                            asked.expiry_date, datetime.min.time(), UTC
+                        )
+                    }
+                    if asked.expiry_date is not None
+                    else {}
+                ),
+                **self._user(),
+            ),
+        )
+        if not isinstance(body, dict):
+            raise VenueError("placing an order")
+        return body
+
+    async def orders(self, account_id: str) -> list[Json]:
+        body = await self._call(
+            "reading orders",
+            lambda: self._sdk.account_information.get_user_account_orders(
+                account_id=account_id, state="all", days=ORDER_DAYS, **self._user()
+            ),
+        )
+        return _objects(body)
+
+    async def cancel(self, account_id: str, brokerage_order_id: str) -> Json:
+        body = await self._call(
+            "cancelling an order",
+            lambda: self._sdk.trading.cancel_order(
+                account_id=account_id, brokerage_order_id=brokerage_order_id, **self._user()
+            ),
+        )
+        return body if isinstance(body, dict) else {}
 
 
 def _objects(body: Any) -> list[Json]:

@@ -4,8 +4,11 @@ A Meridian plugin, in Python on the open-meridian SDK, that reads brokerage
 accounts through SnapTrade and records them as the custodian's view (W2). It
 runs beside a sidecar in a Meridian deployment and reaches nothing else but
 that sidecar and SnapTrade: what it may publish and subscribe to comes from
-the roles `pyproject.toml` declares under `[tool.meridian]` (`custody`), once
-a deployment admin approves them.
+the roles `pyproject.toml` declares under `[tool.meridian]` (`custody`, and
+from contract v22 `connectivity`), once a deployment admin approves them.
+Every page, route and tool names the roles it serves (`roles=`, contract
+v15): Connections for both, the rest for `custody`, whose pages read the
+custody role's accounts (`caller.read_for("custody")`), never the union.
 
 - `src/snaptrade/__main__.py` connects to the sidecar, declares the settings
   (`settings.py`) and the pages, and serves them. `page.py` declares each page
@@ -98,8 +101,9 @@ a deployment admin approves them.
   where SnapTrade turned its brokerage off, the rule in the sync status's
   detail (it has no provenance field); the holdings are as of what the read
   returned (`data_freshness.as_of`, else the last sync), stale past the
-  setting, never as of the read; and no suite case is declared not
-  presented. A deposit is cash (the product owner, 2026-10-05): a position
+  setting, never as of the read; and no custody suite case is declared not
+  presented but contract v22's `reads-a-calendar` (it reads no calendar's
+  days), which the suite marks `about` calendars. A deposit is cash (the product owner, 2026-10-05): a position
   SnapTrade marks `cash_equivalent` that is no fund is the cash row of its
   currency, which SnapTrade counts it in already, never added twice; one it
   does not mark is cash only where an admin of the plugin lists it in the
@@ -122,6 +126,29 @@ a deployment admin approves them.
   the flat figures, never a margin requirement, never a sum across
   currencies. A number that would not cross the wire exactly (18 places, 38
   digits) is caught in `normalise.py`, before its statement opens.
+- **Trading is `trading.py`** (contract v22, `connectivity`; the README's
+  "Trading"). It acts on a placement naming its own instance and no other;
+  places it at SnapTrade only through `venue.py` (`place`, `orders`,
+  `cancel`), the placement's ID as SnapTrade's client order ID; reports
+  each fact with its raw record; never sends a placement twice (`Sent`,
+  noted in storage before each send; an unanswered send is asked about,
+  never resent); infers fills from SnapTrade's filled quantity, each with a
+  derived ID and the date read's settlement date (`compute_date`), never a
+  guessed date; reports a bust only from a later read showing less filled,
+  and a charge only from a `FEE` activity naming an order of a placement
+  that ended unfilled; holds every new send under a pause or a stop and
+  cancels at SnapTrade under a stop, naming the stop's entry; never sends
+  the listing exchange as a place of execution. A connection is read-only
+  until an admin of `connectivity` enables trading on it. **Tests and
+  `make e2e` trade only with the synthetic brokerage**
+  (`synthetic_orders.py`): never call SnapTrade's trading API, a paper or a
+  live account; the live paper run is the product owner's, manual.
+- **Work out a date in core, never by hand.** A settlement date, a spot or
+  tenor date, a roll or whether a day is a business day is
+  `plugin.compute_date(...)`, a calendar's days `plugin.read_calendar(...)`:
+  the deployment's calendars and rules, one answer for every plugin, with
+  the basis it was worked out on. A date outside a calendar's coverage is
+  answered as such, never guessed.
 - **Every route is a tool, or says why not** (contract v12, SDK 0.17.0;
   the product owner, 2026-10-03). Each route declares its inputs as one
   typed record (`params=`, in `records.py` or `history.py`), named as its

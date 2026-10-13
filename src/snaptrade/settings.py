@@ -102,7 +102,14 @@ MOST_ACTIVITY_RETENTION_DAYS = 36500
 
 _WITH_A_COMMERCIAL_KEY = meridian.AppliesWhen(KEY_TYPE, (COMMERCIAL,))
 
-DECLARED: tuple[meridian.Setting, ...] = (
+# The roles each setting serves (contract v15; two roles from contract v22):
+# SnapTrade's key and sample data serve both, since trading reaches SnapTrade
+# with the same key, and so are set by an admin of both; the reads' cadence
+# and the link tables are custody's.
+BOTH = ("custody", "connectivity")
+CUSTODY_ONLY = ("custody",)
+
+_VENDORS: tuple[meridian.Setting, ...] = (
     # In the custody role's order (spec/plugin-pages-follow-their-role): the
     # credentials, in SnapTrade's own words; Read every and Stale after, the
     # role's; then SnapTrade's own -- the key's type with the user it reads
@@ -110,6 +117,7 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         CLIENT_ID,
         str,
+        roles=BOTH,
         required=True,
         secret=True,
         label="Client ID",
@@ -118,16 +126,19 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         CONSUMER_KEY,
         str,
+        roles=BOTH,
         required=True,
         secret=True,
         label="Consumer key",
         description="Shown once, when SnapTrade issues the key.",
     ),
     custody.poll_seconds(
+        roles=CUSTODY_ONLY,
         default=DEFAULT_POLL_SECONDS,
         description=f"How often to read SnapTrade. At least {LEAST_POLL_SECONDS}.",
     ),
     custody.stale_after_hours(
+        roles=CUSTODY_ONLY,
         default=DEFAULT_STALE_AFTER_HOURS,
         description=(
             "How old SnapTrade's last sync of an account may be before it is reported stale."
@@ -136,6 +147,7 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         KEY_TYPE,
         str,
+        roles=BOTH,
         required=True,
         label="Key type",
         default=PERSONAL,
@@ -152,6 +164,7 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         USER_ID,
         str,
+        roles=BOTH,
         required=True,
         label="User ID",
         applies_when=_WITH_A_COMMERCIAL_KEY,
@@ -160,6 +173,7 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         USER_SECRET,
         str,
+        roles=BOTH,
         required=True,
         secret=True,
         label="User secret",
@@ -169,6 +183,7 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         PLAN_CODE_LINKS,
         list,
+        roles=CUSTODY_ONLY,
         label="Plan-code links",
         columns=(
             meridian.Column(ACCOUNT, "external_account", label="Account", required=True),
@@ -190,6 +205,7 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         COUNTED_AS_CASH,
         list,
+        roles=CUSTODY_ONLY,
         label="Cash links",
         # Account, then what SnapTrade names, then what it is: the order of
         # Plan-code links' columns (the product owner, 2026-10-05). Rows are
@@ -227,6 +243,7 @@ DECLARED: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         PERSONAL_KEY,
         bool,
+        roles=BOTH,
         label="Personal key (the old way)",
         developer=True,
         description=(
@@ -235,13 +252,19 @@ DECLARED: tuple[meridian.Setting, ...] = (
             "still counts."
         ),
     ),
-    meridian.sample_data(
-        description=(
-            "Serve built-in sample SnapTrade responses instead of calling SnapTrade, to "
-            "develop against before any key exists."
-        )
+)
+
+# Sample data, last, after the vendor's own settings; a statement of its own,
+# since `meridian plugin check` reads a common setting's helper inside one
+# statement as coming before the settings declared beside it.
+SAMPLE_DATA = meridian.sample_data(
+    roles=BOTH,
+    description=(
+        "Serve built-in sample SnapTrade responses instead of calling SnapTrade, to "
+        "develop against before any key exists, and trade with a simulated brokerage."
     ),
 )
+DECLARED = (*_VENDORS, SAMPLE_DATA)
 
 Values = Mapping[str, str | int | bool | list[dict[str, str]]]
 

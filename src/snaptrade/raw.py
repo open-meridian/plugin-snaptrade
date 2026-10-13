@@ -133,8 +133,23 @@ POSITIONS = ("reading positions", "GET /accounts/{accountId}/positions/all")
 BALANCES = ("reading balances", "GET /accounts/{accountId}/balances")
 ACTIVITIES = ("reading activities", "GET /accounts/{accountId}/activities")
 EACH = (CONNECTIONS, ACCOUNTS, POSITIONS, BALANCES, ACTIVITIES)
+# Trading (contract v22; trading.py): every request to SnapTrade's trading
+# API and its answer, kept as an account's read, and what a catalogue or a
+# rejection made before any request was stated from.
+PLACE = ("placing an order", "POST /trade/place")
+ORDERS = ("reading orders", "GET /accounts/{accountId}/orders")
+CANCEL = ("cancelling an order", "POST /accounts/{accountId}/trading/cancel")
+OFFERED = ("stating what the venue offers", "GET /authorizations")
 #: A row's call, as its record key names it, and the call kept for it.
-CALLS = {"positions": POSITIONS, "balances": BALANCES, "activities": ACTIVITIES}
+CALLS = {
+    "positions": POSITIONS,
+    "balances": BALANCES,
+    "activities": ACTIVITIES,
+    "place": PLACE,
+    "orders": ORDERS,
+    "cancel": CANCEL,
+    "offered": OFFERED,
+}
 #: What an activity's record says of the one entry it keeps.
 ITS_ACTIVITY = "this activity's entry, of the page SnapTrade answered"
 # What a list call kept for one account says it is.
@@ -257,6 +272,41 @@ class Taken:
 
     external_account_id: str
     record: Json
+
+
+def trading_taken(
+    external_account_id: str,
+    snaptrade_account_id: str,
+    at: datetime,
+    calls: Sequence[Json],
+    synthetic: bool,
+) -> Taken:
+    """One exchange with SnapTrade's trading API for an account (contract
+    v22, trading.py), kept as any read is: each call, its request and
+    SnapTrade's answer or why it failed, in `calls`."""
+    return Taken(
+        external_account_id,
+        {
+            "external_account_id": external_account_id,
+            "snaptrade_account_id": snaptrade_account_id,
+            "read_at": at.isoformat(),
+            "source": "synthetic" if synthetic else "snaptrade",
+            "calls": list(calls),
+        },
+    )
+
+
+def trading_call(asked: tuple[str, str], body: Any, note: str = "") -> Json:
+    """One call of an exchange with SnapTrade's trading API, as kept."""
+    return _call(asked, body, note)
+
+
+def trading_failed(asked: tuple[str, str], said: str, answered: Any = None) -> Json:
+    """A trading call that failed: why, and what SnapTrade answered, if anything."""
+    failed = _failed(asked, said)
+    if answered:
+        failed["body"] = answered
+    return failed
 
 
 def history_taken(

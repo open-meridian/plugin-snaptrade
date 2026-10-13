@@ -24,6 +24,11 @@ PLUGIN_CHECK := meridian-snaptrade-plugin-check
 # The meridian check.yaml holds the plugin to, read from there so the two
 # cannot drift.
 MERIDIAN_VERSION := $(shell sed -n 's/^ *MERIDIAN_VERSION: *\([0-9][0-9.]*\).*/\1/p' .github/workflows/check.yaml)
+# A meridian built locally (a directory holding its binary), for a release
+# not yet published: `make check MERIDIAN_BIN=../cli-build`. Empty, the
+# release check.yaml pins is installed.
+MERIDIAN_BIN ?=
+CLI_CONTEXT := $(if $(MERIDIAN_BIN),--build-context cli=$(MERIDIAN_BIN),)
 
 # The released runtime `make e2e` proves the plugin against, by tag and
 # digest: the tag says which core, the digest makes it immutable; and core's
@@ -42,13 +47,13 @@ ROLES := $(shell sed -n 's/^roles *= *\[\(.*\)\]/\1/p' pyproject.toml | tr -d ' 
 # The harness's one plugin, this one, as instance snaptrade, given the
 # harness's archive beside its storage (contract v16): the list `harness.py
 # compose` writes the plugins' half of the deployment from.
-PLUGINS := [{"instance": "snaptrade", "image": "$(IMAGE)", "roles": [$(ROLES)], "archive": true}]
+PLUGINS := [{"instance": "snaptrade", "image": "$(IMAGE)", "roles": [$(ROLES)], "archive": true}, {"instance": "desk", "image": "$(IMAGE)", "roles": ["portfolio", "oms", "ems", "reporting"]}]
 # The plugin harness copied out of HARNESS_IMAGE, as its own project, with
 # the plugins it wrote and e2e/plugin.yaml's root for the plugin. Every
 # compose command gets the runtime, since compose reads every file each time.
-E2E     := MERIDIAN_RUNTIME_IMAGE=$(RUNTIME_IMAGE) \
-           docker compose -p snaptrade-e2e -f .e2e/harness/compose.yaml \
+E2E_COMPOSE := docker compose -p snaptrade-e2e -f .e2e/harness/compose.yaml \
            -f .e2e/harness/plugins.yaml -f e2e/plugin.yaml
+E2E     := MERIDIAN_RUNTIME_IMAGE=$(RUNTIME_IMAGE) E2E_DIR=$(CURDIR)/e2e $(E2E_COMPOSE)
 E2E_RUN := $(E2E) run --rm -T runner
 E2E_STREET := $(E2E) run --rm -T store street
 # The custodian's activity and each connection's latest sync status, as the
@@ -145,10 +150,10 @@ test:
 check:
 	@[ -n "$(MERIDIAN_VERSION)" ] \
 		|| { echo "check FAILED: .github/workflows/check.yaml pins no MERIDIAN_VERSION" >&2; exit 1; }
-	@$(DOCKER) build $(SDK_CONTEXT) -f Dockerfile.check --target check --build-arg MERIDIAN_VERSION=$(MERIDIAN_VERSION) \
+	@$(DOCKER) build $(SDK_CONTEXT) -f Dockerfile.check --target check $(CLI_CONTEXT) --build-arg MERIDIAN_VERSION=$(MERIDIAN_VERSION) \
 		-t $(PLUGIN_CHECK) . >/dev/null 2>&1 \
 		|| { echo "check FAILED to build; see it with:" >&2; \
-		     echo "  DOCKER_BUILDKIT=1 docker build $(SDK_CONTEXT) -f Dockerfile.check --target check --build-arg MERIDIAN_VERSION=$(MERIDIAN_VERSION) --progress=plain ." >&2; exit 1; }
+		     echo "  DOCKER_BUILDKIT=1 docker build $(SDK_CONTEXT) -f Dockerfile.check --target check $(CLI_CONTEXT) --build-arg MERIDIAN_VERSION=$(MERIDIAN_VERSION) --progress=plain ." >&2; exit 1; }
 	@out="$$(docker run --rm -v "$(CURDIR)":/w:ro $(PLUGIN_CHECK) meridian plugin check --verified --run-tests 2>&1)" \
 		|| { echo "check FAILED:" >&2; echo "$$out" >&2; exit 1; }
 	@echo "check OK: meridian $(MERIDIAN_VERSION) plugin check --verified --run-tests, every rule holds"
@@ -201,6 +206,12 @@ image:
 # (e2e/expected.ira-listed; the street keeps SYNFD's position as the earlier
 # statement left it, which a reader of the latest statement takes as absent). Every instrument is a placeholder there, since the harness has no
 # platform, so the file names each row by the identifiers this plugin sent.
+# Then the order path (contract v22, e2e/orders.py), with the desk
+# (e2e/desk.py, portfolio, oms and ems): trading enabled on Alpaca's
+# connection, a buy of 10 placed, acknowledged and filled in two with the date
+# read's settlement date; good till date rejected unsupported; a cancel; a
+# pause and a stop honoured; a restart sending no second order. SIMULATED
+# ONLY: SnapTrade's synthetic brokerage, never SnapTrade.
 # Its own project and no published port; nothing outlives it.
 e2e: image
 	@[ -n '$(ROLES)' ] || { echo "e2e FAILED: pyproject.toml declares no roles" >&2; exit 1; }
@@ -255,7 +266,7 @@ e2e: image
 		|| fail "the plugin kept no raw responses for Alpaca's account in its granted storage"; \
 	key="$$(printf '%s' "$$raw" | sed -n 's/.* the latest \([^ ]*\) in .*/\1/p')"; \
 	[ -n "$$key" ] || fail "the raw responses named no read"; \
-	$(E2E_RUN) grant --level read >>.e2e/runner.log 2>&1 || fail "read on the plugin was not granted"; \
+	$(E2E_RUN) grant --level read --role custody >>.e2e/runner.log 2>&1 || fail "read on the plugin was not granted"; \
 	$(E2E_RUN) page --level read "/raw?ref=ALPACA:SYN-ALP-1001/$$key/positions" --until "The record a row references" \
 		>>.e2e/runner.log 2>&1 || fail "a holding's raw-record reference did not resolve on the Raw records tab"; \
 	$(E2E) up -d --no-deps --force-recreate snaptrade >>.e2e/components.log 2>&1 || fail "the plugin's container was not made again"; \
@@ -352,7 +363,7 @@ e2e: image
 		|| fail "the archived unit is not in the archive alone: $$where"; \
 	$(E2E_RUN) page --level read "/raw?ref=ALPACA:SYN-ALP-1001/$$oldkey/positions" --until "in the archive, and restorable" \
 		>>.e2e/runner.log 2>&1 || fail "a row's reference to the archived read did not resolve to archived, restorable"; \
-	$(E2E_RUN) grant --level write >>.e2e/runner.log 2>&1 || fail "write on the plugin was not granted"; \
+	$(E2E_RUN) grant --level write --role custody >>.e2e/runner.log 2>&1 || fail "write on the plugin was not granted"; \
 	$(E2E_RUN) form --level write --page /raw/archive --post /archive/restore record_kind=responses "unit=$$oldunit" \
 		>>.e2e/runner.log 2>&1 || fail "the Raw records tab's archive did not restore the unit through the SDK's route"; \
 	for i in $$(seq 1 60); do \
@@ -391,7 +402,9 @@ e2e: image
 	$(E2E) run --rm -T store moves >.e2e/moves-again 2>>.e2e/components.log || fail "store moves did not print the moves"; \
 	diff -u .e2e/moves-held .e2e/moves-again >&2 || fail "the new container's pass recorded a move again"; \
 	moved="$$(grep -c '^move|' .e2e/moves-again)"; \
-	echo "e2e OK in $$(( $$(date +%s) - started ))s on $(RUNTIME_IMAGE) and its harness: sample data on and E2E Alpaca linked through Account links; the street store is e2e/expected.street, nothing for the accounts left unlinked, which the dashboard counts ($$unlinked); Alpaca's history backfilled to 2025-06-02, every kind and a type as reported, as e2e/expected.activity, each sync status with its history_from, and the backfill again from a new container recorded nothing twice ($$activity); the raw responses kept in its granted storage on a read-only root ($$raw), a holding's reference resolved on the Raw records tab, and the $$kept; then IBKR's backfill reported its reinvestment under OQKR as the code, and once OQKR was linked to SYNXX's record in the plugin's settings ($$saved) the street kept it as first recorded with its re-resolution beside it, as e2e/expected.re-resolved ($$who), and a new container's backfill re-resolved nothing twice; E2E IRA's deposit SnapTrade marks a cash equivalent sent as its cash, and once SYNFD is listed in the plugin's settings ($$listed) the next statement is two rows, USD cash 12.99, supplied by who listed it, and no SYNFD; then, allowed an archive, a read 40 days old was archived past its window of 30 days ($$where), its row's reference resolved to archived, restorable, restored on the Raw records tab through the SDK's route for the person who asked, and read back; a read 5 days old, past a window of a day with deleted chosen, was kept inside a hold of 30 days, nothing recorded; and the new container's pass recorded nothing twice ($$moved moves in all)"
+	orders="$$(MERIDIAN_RUNTIME_IMAGE=$(RUNTIME_IMAGE) E2E_DIR=$(CURDIR)/e2e python3 e2e/orders.py $(E2E_COMPOSE))" \
+		|| fail "the order path (e2e/orders.py) failed: $$(tail -c 600 .e2e/orders.log)"; \
+	echo "e2e OK in $$(( $$(date +%s) - started ))s on $(RUNTIME_IMAGE) and its harness: sample data on and E2E Alpaca linked through Account links; the street store is e2e/expected.street, nothing for the accounts left unlinked, which the dashboard counts ($$unlinked); Alpaca's history backfilled to 2025-06-02, every kind and a type as reported, as e2e/expected.activity, each sync status with its history_from, and the backfill again from a new container recorded nothing twice ($$activity); the raw responses kept in its granted storage on a read-only root ($$raw), a holding's reference resolved on the Raw records tab, and the $$kept; then IBKR's backfill reported its reinvestment under OQKR as the code, and once OQKR was linked to SYNXX's record in the plugin's settings ($$saved) the street kept it as first recorded with its re-resolution beside it, as e2e/expected.re-resolved ($$who), and a new container's backfill re-resolved nothing twice; E2E IRA's deposit SnapTrade marks a cash equivalent sent as its cash, and once SYNFD is listed in the plugin's settings ($$listed) the next statement is two rows, USD cash 12.99, supplied by who listed it, and no SYNFD; then, allowed an archive, a read 40 days old was archived past its window of 30 days ($$where), its row's reference resolved to archived, restorable, restored on the Raw records tab through the SDK's route for the person who asked, and read back; a read 5 days old, past a window of a day with deleted chosen, was kept inside a hold of 30 days, nothing recorded; and the new container's pass recorded nothing twice ($$moved moves in all); then the order path, SnapTrade holding connectivity beside custody and the desk placing on it: $$orders"
 
 preview:
 	@$(DOCKER) build $(SDK_CONTEXT) -f Dockerfile.check --target test -t $(CHECK) . >/dev/null 2>&1

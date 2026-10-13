@@ -35,7 +35,7 @@ the view runs. So the tab row and the plugin agree by construction.
   first under Manage (sync.py).
 - **Statements** (`/`), at `write` and `read`: per account, its sync state,
   its last statement and its rows, as the last read found them, for each
-  account linked to one the person may read (`caller.read`, which under Open
+  account linked to one the person may read (`caller.read_for("custody")`, which under Open
   holds the accounts they may write too), and plainly nothing for somebody
   who may read none. Under Open it has Refresh, which reads SnapTrade now;
   under View it acts on nothing (intent/a-custody-plugin-serves-its-
@@ -112,6 +112,9 @@ from .sync import Status, Syncer
 from .venue import VenueError
 
 TITLE = "SnapTrade"
+# The roles it holds (contract v15): every page names those it serves.
+CUSTODY = "custody"
+CONNECTIVITY = "connectivity"
 # The kit's version these pages were built against. The dashboard serves the
 # deployment's newest 0.x for it; pinning one keeps the pages as they were built.
 # 0.10.0: every page fits one screen (one-line rows, row-detail, om-pager),
@@ -154,6 +157,9 @@ READ = "/read"
 CONNECT = "/admin/connect"
 REFRESH = f"{CONNECTIONS}/refresh"
 RECONNECT = f"{CONNECTIONS}/reconnect"
+# Enabling trading on a connection (contract v22; step 5's Q10), by an
+# admin of the plugin's connectivity role.
+ENABLE_TRADING = f"{CONNECTIONS}/enable-trading"
 LINK = f"{ACCOUNTS}/link"
 INTENTS = ("link", "create", "unlink")
 SEVERAL = "link-several"
@@ -163,6 +169,7 @@ pages.environment.globals["paths"] = {
     "connect": CONNECT,
     "refresh": REFRESH,
     "reconnect": RECONNECT,
+    "enable_trading": ENABLE_TRADING,
     "link": LINK,
     "raw": RAW,
     "raw_archive": RAW_ARCHIVE,
@@ -456,6 +463,9 @@ def _connection(connection: ConnectionView) -> dict[str, Any]:
         # Reconnecting is what a connection needing sign-in asks for, so it
         # leads there; it cannot mend one whose brokerage SnapTrade turned off.
         "reconnect": "primary" if connection.state is SyncState.NEEDS_SIGN_IN else "",
+        # A connection is read-only until trading is enabled on it (step 5's
+        # Q10), which reconnects it with trading access.
+        "trading": connection.access == "trade",
     }
 
 
@@ -493,6 +503,10 @@ def _connections(notice: Notice | None = None, portal: str | None = None) -> mer
             error=status.error,
             shown={c.connection_id: _connection(c) for c in status.connections},
             users=status.users,
+            # Enabling trading is the connectivity role's admin's (contract v22):
+            # the template asks the caller's level on that role.
+            connectivity=CONNECTIVITY,
+            admin_level=meridian.AccessLevel.ACCESS_LEVEL_ADMIN,
         )
     )
 
@@ -544,6 +558,7 @@ def _connections_read(status: Status) -> records.ConnectionsRead:
     CONNECTIONS,
     "Connections",
     levels="admin",
+    roles=["custody", "connectivity"],
     answers=records.ConnectionsRead,
     name="read_connections",
     description=(
@@ -601,6 +616,7 @@ async def _prepared_notice(request: meridian.Request) -> Notice | None:
 @pages.route(
     "/admin",
     levels="admin",
+    roles=["custody", "connectivity"],
     tool=False,
     why="a browser's way in to Connections; an agent reads them with read_connections",
 )
@@ -659,6 +675,7 @@ def _no_venue(request: meridian.Request) -> meridian.Response:
 @pages.route(
     CONNECT,
     levels="admin",
+    roles="custody",
     methods=["POST"],
     params=records.Connecting,
     answers=records.Portal,
@@ -708,6 +725,7 @@ def _refreshed(
 @pages.route(
     REFRESH,
     levels="admin",
+    roles="custody",
     methods=["POST"],
     params=records.ConnectionAsked,
     answers=records.Refreshed,
@@ -758,6 +776,7 @@ async def refresh(request: meridian.Request) -> meridian.Response:
 @pages.route(
     RECONNECT,
     levels="admin",
+    roles="custody",
     methods=["POST"],
     params=records.ConnectionAsked,
     answers=records.Portal,
@@ -776,6 +795,44 @@ async def reconnect(request: meridian.Request) -> meridian.Response:
     if isinstance(asked, meridian.Response):
         return asked
     portal, failed = await _asking(venue.connection_portal(reconnect=asked))
+    return _portal(request, portal, failed)
+
+
+@pages.route(
+    ENABLE_TRADING,
+    levels="admin",
+    roles="connectivity",
+    methods=["POST"],
+    params=records.ConnectionAsked,
+    answers=records.Portal,
+    name="enable_trading",
+    checked_by="check_enable_trading",
+)
+async def enable_trading(request: meridian.Request) -> meridian.Response:
+    """Enable trading on a connection (contract v22; step 5's Q10): a new
+    connection is read-only, and this opens SnapTrade's Connection Portal to
+    reconnect its brokerage with trading access, keeping its account links.
+    In synthetic mode it takes effect at once, as the reconnect would."""
+    if (refused := _oversized(request)) is not None:
+        return refused
+    held = _now()
+    venue = held.syncer.venue
+    if venue is None:
+        return _no_venue(request)
+    asked = _connection_asked(request)
+    if isinstance(asked, meridian.Response):
+        return asked
+    portal, failed = await _asking(venue.connection_portal(reconnect=asked, trade=True))
+    if failed is None and not portal and held.syncer.config.synthetic:
+        # Read again at once, so the connection shows as trading.
+        held.wake.set()
+        said = (
+            f"Synthetic mode: trading enabled on {asked}, as reconnecting it through "
+            "SnapTrade's Connection Portal with trading access would."
+        )
+        if request.tool_name:
+            return pages.answer("connections.html", records.Portal("", said))
+        return _connections(Notice(said, "good"))
     return _portal(request, portal, failed)
 
 
@@ -1066,6 +1123,7 @@ def _window_read() -> dict[str, Any]:
     ACCOUNTS,
     "Account links",
     levels="admin",
+    roles="custody",
     answers=records.AccountLinksRead,
     name="read_account_links",
     description=(
@@ -1090,7 +1148,14 @@ def _field(form: Mapping[str, list[str]], name: str) -> str:
     return values[0].strip() if len(values) == 1 else ""
 
 
-@pages.route(LINK, levels="admin", methods=["POST"])
+@pages.route(
+    LINK,
+    levels="admin",
+    roles="custody",
+    methods=["POST"],
+    tool=False,
+    why="its tool is link_account's, below",
+)
 async def link(request: meridian.Request) -> meridian.Response:
     """Link, create and link, or unlink one of the accounts the last read
     reached, as the form's `intent` says, for the admin who sent it (W6.4). A
@@ -1387,7 +1452,7 @@ def _readable(link: LinkView | None, caller: meridian.Caller) -> bool:
         link is not None
         and link.state is Link.LINKED
         and bool(link.account_id)
-        and caller.may_read(link.account_id)
+        and link.account_id in caller.read_for(CUSTODY)
     )
 
 
@@ -1554,7 +1619,7 @@ def _statements(request: meridian.Request, notice: Notice | None = None) -> meri
     plainly nothing, for somebody who may read none."""
     caller = request.caller
     status = _now().syncer.status
-    shown = visible(status, _links_of(status), caller) if caller.read else []
+    shown = visible(status, _links_of(status), caller) if caller.read_for(CUSTODY) else []
     asked = request.query.get("account", "").strip()
     chosen = next(
         (at for at, (_, view) in enumerate(shown) if view.account.external_account_id == asked),
@@ -1584,7 +1649,7 @@ def _statements_read(caller: meridian.Caller) -> records.StatementsRead:
     statement's rows, as recorded."""
     status = _now().syncer.status
     links = _links_of(status)
-    shown = visible(status, links, caller) if caller.read else []
+    shown = visible(status, links, caller) if caller.read_for(CUSTODY) else []
     made: list[records.StatementRead] = []
     for connection, view in shown:
         fresh, statement = view.freshness, view.statement
@@ -1644,6 +1709,7 @@ def _row_read(holding: Holding) -> records.RowRead:
     STATEMENTS,
     "Statements",
     levels=["write", "read"],
+    roles="custody",
     answers=records.StatementsRead,
     name="read_statements",
     description=(
@@ -1814,7 +1880,7 @@ def _found(caller: meridian.Caller, account: str) -> Found | NotFound:
         return NotFound(
             "Name the account.", "the deployment's account, one you may read", "refused"
         )
-    if not caller.may_read(account):
+    if account not in caller.read_for(CUSTODY):
         return NotFound(
             "Not an account you may read.", "not an account you may read", "permission_denied"
         )
@@ -1836,7 +1902,7 @@ def _history_context(request: meridian.Request, account: str) -> dict[str, Any]:
     status = _now().syncer.status
     return {
         "dot": _dot(status, setup=False),
-        "nothing": not request.caller.read,
+        "nothing": not request.caller.read_for(CUSTODY),
         "accounts": _readable_accounts(request.caller),
         "chosen": account,
         "mode": _MODE[status.mode],
@@ -1889,6 +1955,7 @@ def _connection_named(connection: ConnectionView) -> str:
     HISTORY,
     "History",
     levels=["write", "read"],
+    roles="custody",
     params=history.HistoryAsked,
     answers=history.Activities,
     name="read_account_activities",
@@ -2018,6 +2085,7 @@ async def account_history(request: meridian.Request) -> meridian.Response:
 @pages.route(
     LOTS,
     levels=["write", "read"],
+    roles="custody",
     params=history.LotsAsked,
     answers=history.ProposedLots,
     name="read_proposed_lots",
@@ -2150,7 +2218,7 @@ def raw_accounts(caller: meridian.Caller) -> list[RawAccount]:
     """The external accounts linked to an account `caller` may read: those
     the last read reached first, in its order, then any other the plugin's
     links name, whose kept reads may predate this process."""
-    if not caller.read:
+    if not caller.read_for(CUSTODY):
         return []
     held = _now()
     reached = [
@@ -2377,7 +2445,7 @@ def _raw(request: meridian.Request, notice: Notice | None = None) -> meridian.Re
         pages.render(
             "raw.html",
             dot=_dot(status, setup=False),
-            nothing=not caller.read,
+            nothing=not caller.read_for(CUSTODY),
             accounts=accounts,
             account=shown,
             unit=unit,
@@ -2412,6 +2480,7 @@ def _raw(request: meridian.Request, notice: Notice | None = None) -> meridian.Re
     RAW,
     "Raw records",
     levels=["write", "read"],
+    roles="custody",
     tool=False,
     why=(
         "SnapTrade's answers as received, any JSON it sent, which no typed record holds; "
@@ -2427,6 +2496,7 @@ async def raw_responses(request: meridian.Request) -> meridian.Response:
 @pages.route(
     RAW_ARCHIVE,
     levels=["write", "read"],
+    roles="custody",
     params=records.ArchiveAsked,
     answers=records.ArchiveRead,
     name="read_archived_units",
@@ -2477,7 +2547,7 @@ async def raw_archive(request: meridian.Request) -> meridian.Response:
         "raw.html",
         data,
         dot=_dot(status, setup=False),
-        nothing=not caller.read,
+        nothing=not caller.read_for(CUSTODY),
         accounts=accounts,
         account={
             "external_account_id": account,
@@ -2519,6 +2589,7 @@ def _filename(external_account_id: str, key: str) -> str:
 @pages.route(
     RAW_DOWNLOAD,
     levels=["write", "read"],
+    roles="custody",
     tool=False,
     why="a file for a person to save: SnapTrade's answers as received, as kept",
 )
@@ -2558,6 +2629,7 @@ READING = "Reading SnapTrade now. Reload in a moment."
 @pages.route(
     READ,
     levels=["admin", "write"],
+    roles="custody",
     methods=["POST"],
     params=records.ReadAsked,
     answers=records.ReadStarted,
@@ -2603,8 +2675,40 @@ CHECK = "/check"
 
 
 @pages.route(
+    ENABLE_TRADING + CHECK,
+    levels="admin",
+    roles="connectivity",
+    methods=["POST"],
+    params=records.ConnectionAsked,
+    answers=records.Portal,
+    reads=True,
+    name="check_enable_trading",
+    description=(
+        "Check enable_trading without opening anything: whether the connection is one the "
+        "last read reached, so SnapTrade's Connection Portal can open to reconnect it with "
+        "trading access."
+    ),
+)
+async def check_enable_trading(request: meridian.Request) -> meridian.Response:
+    if _now().syncer.venue is None:
+        return _no_venue(request)
+    asked = _connection_asked(request)
+    if isinstance(asked, meridian.Response):
+        return asked
+    return pages.answer(
+        "connections.html",
+        records.Portal(
+            "",
+            f"Would open SnapTrade's Connection Portal to reconnect {asked} "
+            "with trading access.",
+        ),
+    )
+
+
+@pages.route(
     CONNECT + CHECK,
     levels="admin",
+    roles="custody",
     methods=["POST"],
     params=records.Connecting,
     answers=records.Portal,
@@ -2629,6 +2733,7 @@ async def check_open_connection_portal(request: meridian.Request) -> meridian.Re
 @pages.route(
     REFRESH + CHECK,
     levels="admin",
+    roles="custody",
     methods=["POST"],
     params=records.ConnectionAsked,
     answers=records.Refreshed,
@@ -2661,6 +2766,7 @@ async def check_refresh_connection(request: meridian.Request) -> meridian.Respon
 @pages.route(
     RECONNECT + CHECK,
     levels="admin",
+    roles="custody",
     methods=["POST"],
     params=records.ConnectionAsked,
     answers=records.Portal,
@@ -2688,6 +2794,7 @@ async def check_reconnect_connection(request: meridian.Request) -> meridian.Resp
 @pages.route(
     READ + CHECK,
     levels=["admin", "write"],
+    roles="custody",
     methods=["POST"],
     params=records.ReadAsked,
     answers=records.ReadStarted,
@@ -2712,6 +2819,7 @@ async def check_snaptrade_now(request: meridian.Request) -> meridian.Response:
 @pages.route(
     LINK + CHECK,
     levels="admin",
+    roles="custody",
     methods=["POST"],
     params=records.LinkAsked,
     answers=records.Linked,

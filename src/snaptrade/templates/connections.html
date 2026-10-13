@@ -18,7 +18,10 @@
 {#- On a phone a row keeps Reconnect; a delayed connection's Refresh is
     the wide screen's (the section head's Refresh reads every one). -#}
 {%- if it.refresh %}<span class="wide-only">{{ ui.act(paths.refresh, "Refresh", "refresh_connection", caller.second_pair_of_eyes, "small", fields={"connection_id": row.connection_id}, label="Refresh " ~ row.connection) }}</span>{% endif %}
-{{ ui.act(paths.reconnect, "Reconnect", "reconnect_connection", caller.second_pair_of_eyes, ("small " ~ it.reconnect)|trim, fields={"connection_id": row.connection_id}, label="Reconnect " ~ row.connection) }}</td>
+{{ ui.act(paths.reconnect, "Reconnect", "reconnect_connection", caller.second_pair_of_eyes, ("small " ~ it.reconnect)|trim, fields={"connection_id": row.connection_id}, label="Reconnect " ~ row.connection) }}
+{#- Trading is enabled per connection by the connectivity role's admin
+    (contract v22; step 5's Q10): read-only until then. -#}
+{%- if not it.trading and caller.level_for(connectivity) == admin_level %} {{ ui.act(paths.enable_trading, "Enable trading", "enable_trading", caller.second_pair_of_eyes, "small", fields={"connection_id": row.connection_id}, label="Enable trading on " ~ row.connection) }}{% endif %}</td>
 {%- endif %}
 {% endblock %}
 {% block vendor_sections %}

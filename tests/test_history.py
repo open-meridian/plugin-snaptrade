@@ -94,6 +94,9 @@ def test_every_route_is_typed_and_offered_as_a_tool_or_says_why_not() -> None:
         "open_connection_portal": ("POST", CONNECT, False),
         "refresh_connection": ("POST", REFRESH, False),
         "reconnect_connection": ("POST", RECONNECT, False),
+        # Contract v22: trading enabled on a connection, by the connectivity
+        # role's admin (step 5's Q10).
+        "enable_trading": ("POST", RECONNECT.replace("reconnect", "enable-trading"), False),
         "read_account_links": ("GET", ACCOUNTS, True),
         "link_account": ("POST", LINK, False),
         "read_statements": ("GET", STATEMENTS, True),
@@ -105,6 +108,11 @@ def test_every_route_is_typed_and_offered_as_a_tool_or_says_why_not() -> None:
         "check_open_connection_portal": ("POST", CONNECT + "/check", True),
         "check_refresh_connection": ("POST", REFRESH + "/check", True),
         "check_reconnect_connection": ("POST", RECONNECT + "/check", True),
+        "check_enable_trading": (
+            "POST",
+            RECONNECT.replace("reconnect", "enable-trading") + "/check",
+            True,
+        ),
         "check_link_account": ("POST", LINK + "/check", True),
         "check_snaptrade_now": ("POST", READ + "/check", True),
         # The SDK's, on every edge plugin's host (contract v16).
