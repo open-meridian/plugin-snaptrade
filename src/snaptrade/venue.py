@@ -16,7 +16,10 @@ responses of the same shape. Tests substitute either.
 SnapTrade's `POST /trade/place` (`place`), carrying the placement's own ID as
 its client order ID; an account's orders are read through `GET
 /accounts/{accountId}/orders` (`orders`), each as SnapTrade's order record;
-and a cancel is `POST /accounts/{accountId}/trading/cancel` (`cancel`). A
+a cancel is `POST /accounts/{accountId}/trading/cancel` (`cancel`); and a
+replace `POST /accounts/{accountId}/trading/replace` (`replace`), which
+SnapTrade supports at some brokerages, its answer the order's record, whose
+brokerage order ID may be new. A
 call SnapTrade answered with a refusal (a 4xx) is a `VenueError` that was
 `answered`, with SnapTrade's own error code and words in `said`, credentials
 never among them; one it did not answer (no reply, a 5xx) is not, and the
@@ -174,6 +177,13 @@ class Venue(Protocol):
         """`POST /accounts/{accountId}/trading/cancel`: SnapTrade's answer."""
         ...
 
+    async def replace(self, account_id: str, asked: ReplaceAsked) -> Json:
+        """`POST /accounts/{accountId}/trading/replace`: the order replaced,
+        SnapTrade's order record of it, whose brokerage order ID may be new.
+        SnapTrade supports it at some brokerages; one that does not refuses it
+        (a 4xx)."""
+        ...
+
     async def refresh(self, connection_id: str) -> str:
         """Ask SnapTrade to read a connection's brokerage again; its confirmation.
 
@@ -222,6 +232,37 @@ class OrderAsked:
             body["stop"] = str(self.stop)
         if self.expiry_date is not None:
             body["expiry_date"] = self.expiry_date.isoformat()
+        return body
+
+
+@dataclass(frozen=True)
+class ReplaceAsked:
+    """A replace as SnapTrade's `POST /accounts/{accountId}/trading/replace`
+    takes it, in its own words: the brokerage order it replaces, the order's
+    action, type and time in force, and its units and prices now, as
+    Decimals."""
+
+    brokerage_order_id: str
+    action: str
+    order_type: str
+    time_in_force: str
+    units: Decimal
+    price: Decimal | None = None
+    stop: Decimal | None = None
+
+    def body(self) -> Json:
+        """The request as SnapTrade's API documents it, numbers as their text."""
+        body: Json = {
+            "brokerage_order_id": self.brokerage_order_id,
+            "action": self.action,
+            "order_type": self.order_type,
+            "time_in_force": self.time_in_force,
+            "units": str(self.units),
+        }
+        if self.price is not None:
+            body["price"] = str(self.price)
+        if self.stop is not None:
+            body["stop"] = str(self.stop)
         return body
 
 
@@ -524,6 +565,29 @@ class SnapTradeVenue:
             ),
         )
         return body if isinstance(body, dict) else {}
+
+    async def replace(self, account_id: str, asked: ReplaceAsked) -> Json:
+        # The numbers as `place` gives them: each from its Decimal's text.
+        def number(value: Decimal | None) -> float | None:
+            return None if value is None else float(str(value))
+
+        body = await self._call(
+            "replacing an order",
+            lambda: self._sdk.trading.replace_order(
+                account_id=account_id,
+                brokerage_order_id=asked.brokerage_order_id,
+                action=asked.action,
+                order_type=asked.order_type,
+                time_in_force=asked.time_in_force,
+                units=number(asked.units),
+                price=number(asked.price),
+                stop=number(asked.stop),
+                **self._user(),
+            ),
+        )
+        if not isinstance(body, dict):
+            raise VenueError("replacing an order")
+        return body
 
 
 def _objects(body: Any) -> list[Json]:

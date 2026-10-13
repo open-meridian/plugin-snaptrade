@@ -37,6 +37,7 @@ import meridian
 from meridian.edge import as_reported, derived, reported, supplied
 
 from .activities import SYMBOL_SCHEME, Converted, PlanCodeLink, link_for
+from .linking import failure
 from .normalise import (
     ACCOUNT_TYPE_SCHEME,
     SECURITY_TYPE_SCHEME,
@@ -399,7 +400,10 @@ class Recorder:
                         "activities of %s stopped: %s", account.external_account_id, refused
                     )
                     return
-                said = f"activity {converted.external_activity_id} was refused: {refused}"
+                said = (
+                    f"activity {converted.external_activity_id} was not recorded: "
+                    f"{failure(refused)}"
+                )
                 outcome.skipped.append(said)
                 log.warning("%s: %s", account.external_account_id, said)
                 continue
@@ -451,7 +455,7 @@ class Recorder:
                 outcome.unlinked = refused_unlinked(refused)
                 log.info("activities of %s stopped: %s", account.external_account_id, refused)
                 return True
-            outcome.skipped.append(f"{said} was not re-resolved: {refused}")
+            outcome.skipped.append(f"{said} was not re-resolved: {failure(refused)}")
             log.warning("%s: %s", account.external_account_id, outcome.skipped[-1])
             return False
         if not answer.already_recorded:

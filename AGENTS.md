@@ -60,8 +60,10 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   is never at `admin`.
 - **Past the window, the archive** (contract v16, SDK 0.21.0; meridian-design
   spec/an-edge-plugins-older-records-move-to-the-archive). The declaration's
-  two kinds, `activity` (Reported activity, 2555 days) and `responses` (Raw
-  responses, 30 days), give the SDK's window settings, `<kind>_window_days`
+  kinds, `activity` (Reported activity, 2555 days), `responses` (Raw
+  responses, 30 days) and from contract v22 `trading` (Trading, 2555 days:
+  each exchange with SnapTrade's trading API, in month units, keyed as a
+  read; approved 2026-10-13), give the SDK's window settings, `<kind>_window_days`
   and `<kind>_past_window`, which this plugin never declares itself and reads
   through `settings.windows_from`. 0.12.0's `raw_retention_days` and
   `activity_retention_days` are dropped, never declared again or read: the
@@ -129,8 +131,15 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
 - **Trading is `trading.py`** (contract v22, `connectivity`; the README's
   "Trading"). It acts on a placement naming its own instance and no other;
   places it at SnapTrade only through `venue.py` (`place`, `orders`,
-  `cancel`), the placement's ID as SnapTrade's client order ID; reports
-  each fact with its raw record; never sends a placement twice (`Sent`,
+  `cancel`, `replace`), the placement's ID as SnapTrade's client order ID;
+  tells a cancel from a replace by the placement's change request
+  (`Placement.change_requests`), never a condition's words, and refuses a
+  change by the placement rejected while it works (transitions row 14);
+  reads the codes mapped on it from `AccountScope.venue_account_map`, never
+  from the placements seen; never records an order or creates a placement
+  (ruled 2026-10-13: an order the brokerage took outside the platform is
+  kept as received and left alone, its fill v23's); reports each fact with
+  its raw record, kept as the `trading` kind; never sends a placement twice (`Sent`,
   noted in storage before each send; an unanswered send is asked about,
   never resent); infers fills from SnapTrade's filled quantity, each with a
   derived ID and the date read's settlement date (`compute_date`), never a

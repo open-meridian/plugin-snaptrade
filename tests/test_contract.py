@@ -807,11 +807,12 @@ KNOWN_PARAMETERS = {
         "valid_until_ns",
     },
     # v22 (W11, connectivity; trading.py): what a connectivity plugin sends
-    # and reads. Its own placements' facts, each with its raw record; a
-    # venue-originated order recorded and placed on itself; a stop's cancel
+    # and reads. Its own placements' facts, each with its raw record (a
+    # replace among them, with the quantity and limit now); a stop's cancel
     # reported naming the stop; the instructions in force and the book's
     # orders read; the catalogue published; each fill's settlement date
-    # asked of the date read (W3.20).
+    # asked of the date read (W3.20). It records no order and creates no
+    # placement (ruled 2026-10-13: the oms's and the ems's, below).
     "report_placement": {
         "acting_for",
         "event",
@@ -869,6 +870,24 @@ KNOWN_PARAMETERS = {
         "settlement_date",
         "trade_date",
     },
+    "request_placement_change": {
+        "acting_for",
+        "cause",
+        "change",
+        "idempotency_key",
+        "placement_id",
+        "reason",
+    },
+    "list_orders": {"account_id", "cursor", "page_size", "since"},
+    "list_trading_instructions": {"cursor", "page_size", "since"},
+    "report_venue_catalogue": {"catalogue"},
+    "compute_date": {"as_of_ns", "business_day", "roll", "settlement", "spot", "tenor"},
+    # Known, and not used (v22): a calendar's days (SnapTrade's work asks
+    # the date read for each fill's date, never a calendar); a locate
+    # (SnapTrade has no locate API); the venue catalogue read back (it
+    # publishes its own); and what the portfolio, oms, ems, compliance and
+    # operations roles send -- an order recorded is the oms's, a placement
+    # the ems's, and the sidecar refuses either from a connectivity plugin.
     "record_order": {
         "account_id",
         "acting_for",
@@ -878,11 +897,9 @@ KNOWN_PARAMETERS = {
         "order_type",
         "origin",
         "quantity",
-        "raw_record",
         "side",
         "sleeve",
         "time_in_force",
-        "venue_account_code",
         "venue_order_id",
     },
     "create_placement": {
@@ -901,23 +918,6 @@ KNOWN_PARAMETERS = {
         "time_in_force",
         "venue_account_code",
     },
-    "request_placement_change": {
-        "acting_for",
-        "cause",
-        "change",
-        "idempotency_key",
-        "placement_id",
-        "reason",
-    },
-    "list_orders": {"account_id", "cursor", "page_size", "since"},
-    "list_trading_instructions": {"cursor", "page_size", "since"},
-    "report_venue_catalogue": {"catalogue"},
-    "compute_date": {"as_of_ns", "business_day", "roll", "settlement", "spot", "tenor"},
-    # Known, and not used (v22): a calendar's days (SnapTrade's work asks
-    # the date read for each fill's date, never a calendar); a locate
-    # (SnapTrade has no locate API); the venue catalogue read back (it
-    # publishes its own); and what the portfolio, oms, ems, compliance and
-    # operations roles send.
     "read_calendar": {"as_of_ns", "calendar_id", "from_date", "to_date"},
     "record_locate": {
         "acting_for",

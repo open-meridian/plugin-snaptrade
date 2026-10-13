@@ -12,11 +12,13 @@ that the common model may need to grow. Each is counted as it is seen, and
 the count rides on the heartbeat, never leaving the deployment.
 
 And the storage it asks for, at the edge, for SnapTrade's raw responses
-(decisions/028), with the two kinds of raw record it keeps there (contract
+(decisions/028), with the three kinds of raw record it keeps there (contract
 v16; meridian-design spec/an-edge-plugins-older-records-move-to-the-
 archive): a reported activity's record, seven years in storage by default
-(the custody guidance of 2026-10-05), and each read's raw responses, 30 days
-by default; both archivable, since a unit of either is files written once.
+(the custody guidance of 2026-10-05); each read's raw responses, 30 days by
+default; and from contract v22 each trading exchange (`trading`, approved
+2026-10-13), seven years by default; all archivable, since a unit of any is
+files written once.
 The SDK declares each kind's two settings from these, its window and what is
 done past it (settings.py), and the plugin moves its records past their
 window itself (archive.py). The retention stays the longest a window may be,
@@ -35,7 +37,9 @@ from .settings import (
     DECLARED,
     DEFAULT_ACTIVITY_RETENTION_DAYS,
     DEFAULT_RAW_RETENTION_DAYS,
+    DEFAULT_TRADING_RETENTION_DAYS,
     RESPONSES,
+    TRADING,
 )
 from .venue import Snapshot
 
@@ -47,7 +51,10 @@ ACTIVITY_KIND = RecordKind(
 RESPONSES_KIND = RecordKind(
     RESPONSES, "Raw responses", window_days=DEFAULT_RAW_RETENTION_DAYS, archivable=True
 )
-KINDS = (ACTIVITY_KIND, RESPONSES_KIND)
+TRADING_KIND = RecordKind(
+    TRADING, "Trading", window_days=DEFAULT_TRADING_RETENTION_DAYS, archivable=True
+)
+KINDS = (ACTIVITY_KIND, RESPONSES_KIND, TRADING_KIND)
 
 POSITION = "snaptrade:position"
 LOT = "snaptrade:tax-lot"

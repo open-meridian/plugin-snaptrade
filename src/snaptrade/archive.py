@@ -3,9 +3,10 @@ the settings say (contract v16; meridian-design spec/an-edge-plugins-older-
 records-move-to-the-archive, plans/an-edge-plugins-older-records-move-to-
 the-archive row 6).
 
-The plugin keeps two kinds of raw record (declaration.py), each in units
-(raw.py): an account's day of reads, and an account's month of reported
-activity records. A unit whose last record was received before its kind's
+The plugin keeps three kinds of raw record (declaration.py), each in units
+(raw.py): an account's day of reads, an account's month of reported
+activity records, and from contract v22 an account's month of trading
+exchanges. A unit whose last record was received before its kind's
 window (settings.Windows) is past it, and is, as the kind's past-the-window
 setting says:
 
@@ -32,8 +33,9 @@ gone from storage and the refused ones refused again, and records nothing
 twice.
 
 A unit is moved only once its day or month has ended, so nothing is written
-into it after: a read is kept in the day it was read, and an activity's
-record in the month it was received. A unit the SDK's index says moved
+into it after: a read is kept in the day it was read, a trading exchange
+in the month it was made, and an activity's record in the month it was
+received. A unit the SDK's index says moved
 already is moved again only where it holds what the ledger noted -- one
 recorded before a restart could remove it, which the SDK then removes --
 and is kept otherwise, with a warning: never moved under a path that held
@@ -59,12 +61,12 @@ import meridian
 from meridian.v1 import sidecar_pb2
 
 from .raw import RawStore, Unit, _ns
-from .settings import ACTIVITY, ARCHIVED, DELETED, RESPONSES, Window, Windows
+from .settings import ACTIVITY, ARCHIVED, DELETED, RESPONSES, TRADING, Window, Windows
 
 log = logging.getLogger("snaptrade")
 
 #: The kinds, in the order a pass takes them and the heartbeat names them.
-KINDS = (ACTIVITY, RESPONSES)
+KINDS = (ACTIVITY, RESPONSES, TRADING)
 
 
 @dataclass
@@ -115,8 +117,13 @@ class Keeper:
             now = self._now()
             store.responses_window = windows.responses.length
             store.activity_window = windows.activity.length
+            store.trading_window = windows.trading.length
             store.settle(now)
-            ended = {RESPONSES: f"{now:%Y-%m-%d}", ACTIVITY: f"{now:%Y-%m}"}
+            ended = {
+                RESPONSES: f"{now:%Y-%m-%d}",
+                ACTIVITY: f"{now:%Y-%m}",
+                TRADING: f"{now:%Y-%m}",
+            }
             stored = []
             for kind in KINDS:
                 window = windows.of(kind)

@@ -60,6 +60,7 @@ from .venue import (
     ActivityPage,
     Json,
     OrderAsked,
+    ReplaceAsked,
     VenueError,
     activity_page_of,
     parse_exact,
@@ -667,6 +668,9 @@ class SyntheticVenue:
 
     async def cancel(self, account_id: str, brokerage_order_id: str) -> Json:
         return self.trading.cancel(account_id, brokerage_order_id)
+
+    async def replace(self, account_id: str, asked: ReplaceAsked) -> Json:
+        return self.trading.replace(account_id, asked)
 
     async def refresh(self, connection_id: str) -> str:
         return "Synthetic mode: nothing was asked of SnapTrade."

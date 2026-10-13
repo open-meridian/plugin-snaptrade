@@ -52,11 +52,22 @@ activity was traded before it was received (`history_reach_days`), which a
 shorter window is held to for a deletion (the product owner, 2026-10-05).
 `find` resolves it as it does a row's.
 
-**Two kinds, each in units** (contract v16; archive.py). Each record is one
+**A trading exchange is a record of its own kind** (contract v22, the
+`trading` kind, approved 2026-10-13): each request to SnapTrade's trading API
+and its answer (a place, a cancel, a replace, an account's orders), and what
+a rejection made before any request was stated from (trading.py), kept as a
+read is, by its time, under the `trading` kind's window (seven years by
+default, an admin's to set), not the raw responses'. Its key is a read's,
+so a fact's reference resolves (`find`) and the Raw records tab lists it
+among the account's reads.
+
+**Three kinds, each in units** (contract v16; archive.py). Each record is one
 gzipped JSON file, written whole or not at all, under an account directory
 named by a hash of the external account ID (so no ID names a path): a read's
 in its day, `<root>/<account>/<YYYY-MM-DD>/<read>.json.gz`, the read its
-time, which is its key; an activity's in the month it was received,
+time, which is its key; a trading exchange's in its month,
+`<root>/<account>/trading/<YYYY-MM>/<key>.json.gz`, keyed as a read; an
+activity's in the month it was received,
 `<root>/<account>/activities/<YYYY-MM>/<hash of its ID>.json.gz`, the file's
 time when it was received. Each day and each month is a unit, which archive.py
 moves past its kind's window through the SDK's helpers -- archived, kept or
@@ -88,7 +99,7 @@ from typing import Any
 from meridian import edge
 
 from .normalise import ConnectionView
-from .settings import ACTIVITY, RESPONSES
+from .settings import ACTIVITY, DEFAULT_TRADING_RETENTION_DAYS, RESPONSES, TRADING
 from .venue import Json, Snapshot, parse_exact
 
 log = logging.getLogger("snaptrade")
@@ -120,6 +131,9 @@ MOST_ACTIVITY_RETENTION_DAYS = 36500
 ACTIVITY_DIRECTORY = "activities"
 #: The first part of an activity record's key.
 ACTIVITY_KEYS = "activities"
+#: Where an account's trading exchanges are kept, beside its reads (contract
+#: v22, trading.py): the `trading` kind, in months.
+TRADING_DIRECTORY = "trading"
 
 REDACTED = "[redacted]"
 
@@ -139,6 +153,7 @@ EACH = (CONNECTIONS, ACCOUNTS, POSITIONS, BALANCES, ACTIVITIES)
 PLACE = ("placing an order", "POST /trade/place")
 ORDERS = ("reading orders", "GET /accounts/{accountId}/orders")
 CANCEL = ("cancelling an order", "POST /accounts/{accountId}/trading/cancel")
+REPLACE = ("replacing an order", "POST /accounts/{accountId}/trading/replace")
 OFFERED = ("stating what the venue offers", "GET /authorizations")
 #: A row's call, as its record key names it, and the call kept for it.
 CALLS = {
@@ -148,6 +163,7 @@ CALLS = {
     "place": PLACE,
     "orders": ORDERS,
     "cancel": CANCEL,
+    "replace": REPLACE,
     "offered": OFFERED,
 }
 #: What an activity's record says of the one entry it keeps.
@@ -511,6 +527,12 @@ def _day_of(key: str) -> str:
     return f"{key[0:4]}-{key[4:6]}-{key[6:8]}"
 
 
+def _month_of_key(key: str) -> str:
+    """The month a trading exchange's key falls in, as its unit's directory
+    names it."""
+    return f"{key[0:4]}-{key[4:6]}"
+
+
 def _month_of(received_ns: int) -> str:
     """The month an activity record was received in, as its unit's directory
     names it."""
@@ -597,6 +619,7 @@ class RawStore:
         # `kept_for` is what an activity record is held to before deletion.
         self.responses_window = timedelta(days=DEFAULT_RETENTION_DAYS)
         self.activity_window = timedelta(days=ACTIVITY_RETENTION_DAYS)
+        self.trading_window = timedelta(days=DEFAULT_TRADING_RETENTION_DAYS)
         # How far back the history reported reaches, in days, once a record
         # has been read or written: None until then.
         self._reach: int | None = None
@@ -672,6 +695,17 @@ class RawStore:
             log.warning("a raw response was not kept: %s", type(failed).__name__)
             return ""
 
+    def keep_trading(self, one: Taken, secrets: Iterable[str] = ()) -> str:
+        """Write one exchange with SnapTrade's trading API (`trading_taken`),
+        its credentials redacted first, in the `trading` kind's month: the key
+        it was kept under, or "" where it could not be written, as
+        `keep_one` says."""
+        try:
+            return self._write(one, redact(one.record, tuple(secrets)), trading=True)
+        except OSError as failed:
+            log.warning("a trading exchange was not kept: %s", type(failed).__name__)
+            return ""
+
     def keep_activity(self, one: Taken, secrets: Iterable[str] = ()) -> bool:
         """Write one activity's record where none is kept for it, its
         credentials redacted first: whether one is kept now. The first kept
@@ -714,12 +748,17 @@ class RawStore:
             Path(written).unlink(missing_ok=True)
             raise
 
-    def _write(self, one: Taken, record: Json) -> str:
+    def _write(self, one: Taken, record: Json, trading: bool = False) -> str:
+        """A read in its day, or a trading exchange in its month, under a key
+        no read and no exchange of the account holds."""
         base = _key_of(datetime.fromisoformat(str(record["read_at"])))
-        directory = self._directory(one.external_account_id) / _day_of(base)
+        account = self._directory(one.external_account_id)
+        day = account / _day_of(base)
+        month = account / TRADING_DIRECTORY / _month_of_key(base)
+        directory = month if trading else day
         directory.mkdir(parents=True, exist_ok=True)
         key, again = base, 1
-        while (directory / f"{key}{_SUFFIX}").exists():
+        while (day / f"{key}{_SUFFIX}").exists() or (month / f"{key}{_SUFFIX}").exists():
             again += 1
             key = f"{base}-{again}"
         self._replace(directory / f"{key}{_SUFFIX}", record)
@@ -741,6 +780,7 @@ class RawStore:
                 activities,
                 *_subdirectories(account, _DAY),
                 *_subdirectories(activities, _MONTH),
+                *_subdirectories(account / TRADING_DIRECTORY, _MONTH),
             ):
                 for file in _files(directory, ""):
                     try:
@@ -771,21 +811,27 @@ class RawStore:
 
     def units(self, kind: str) -> list[Unit]:
         """Every unit of `kind` in the storage, oldest first within an
-        account: the day directories of each account's reads, or the month
-        directories of its activity records. Empty for the stand-in."""
+        account: the day directories of each account's reads, the month
+        directories of its trading exchanges, or the month directories of its
+        activity records. Empty for the stand-in."""
         if self.storage is None:
             return []
         found: list[Unit] = []
         for account in self._accounts():
-            if kind == RESPONSES:
-                for day in _subdirectories(account, _DAY):
+            if kind in (RESPONSES, TRADING):
+                directories = (
+                    _subdirectories(account, _DAY)
+                    if kind == RESPONSES
+                    else _subdirectories(account / TRADING_DIRECTORY, _MONTH)
+                )
+                for directory in directories:
                     times = {
                         f.name: _ns(moment)
-                        for f in _files(day)
+                        for f in _files(directory)
                         if (moment := _moment_of(f.name.removesuffix(_SUFFIX))) is not None
                     }
                     if times:
-                        found.append(self._unit(kind, day, times))
+                        found.append(self._unit(kind, directory, times))
             else:
                 for month in _subdirectories(account / ACTIVITY_DIRECTORY, _MONTH):
                     times = {}
@@ -812,7 +858,7 @@ class RawStore:
     def _ledger_file(self, unit_path: Path) -> Path:
         """An account's ledger, beside its units: the account's directory."""
         account = unit_path.parent
-        if account.name == ACTIVITY_DIRECTORY:
+        if account.name in (ACTIVITY_DIRECTORY, TRADING_DIRECTORY):
             account = account.parent
         return account / LEDGER
 
@@ -894,17 +940,24 @@ class RawStore:
     def _moved_holding(
         self, external_account_id: str, kind_dir: str, name: str
     ) -> Moved | None:
-        """The moved unit holding the file `name`, of reads (`kind_dir` "")
-        or activity records (ACTIVITY_DIRECTORY), or None."""
-        kind = ACTIVITY if kind_dir == ACTIVITY_DIRECTORY else RESPONSES
+        """The moved unit holding the file `name`, of reads (`kind_dir` ""),
+        activity records (ACTIVITY_DIRECTORY) or trading exchanges
+        (TRADING_DIRECTORY), or None."""
+        kind = {ACTIVITY_DIRECTORY: ACTIVITY, TRADING_DIRECTORY: TRADING}.get(
+            kind_dir, RESPONSES
+        )
         for moved in self.moved(external_account_id):
             if moved.kind == kind and name in moved.files:
                 return moved
         return None
 
     def moved_read(self, external_account_id: str, read: str) -> Moved | None:
-        """The moved unit holding the account's read by its key, or None."""
-        return self._moved_holding(external_account_id, "", f"{read}{_SUFFIX}")
+        """The moved unit holding the account's read, or trading exchange, by
+        its key, or None."""
+        name = f"{read}{_SUFFIX}"
+        return self._moved_holding(external_account_id, "", name) or self._moved_holding(
+            external_account_id, TRADING_DIRECTORY, name
+        )
 
     def moved_activity(self, external_account_id: str, activity_id: str) -> Moved | None:
         """The moved unit holding the account's activity record, or None."""
@@ -992,15 +1045,24 @@ class RawStore:
 
     def _read_directories(self, external_account_id: str) -> list[tuple[Path, bool]]:
         """Where the account's reads are: 0.12.0's flat place, each day in
-        storage, and each day restored; each with whether it is restored."""
+        storage, and each day restored; and its trading exchanges, each month
+        in storage and restored; each with whether it is restored."""
         account = self._directory(external_account_id)
         restored = self._restored(account)
+        trading = account / TRADING_DIRECTORY
+        restored_trading = self._restored(trading)
         return [
             (account, False),
             *((day, False) for day in _subdirectories(account, _DAY)),
             *(
                 ((day, True) for day in _subdirectories(restored, _DAY))
                 if restored is not None
+                else ()
+            ),
+            *((month, False) for month in _subdirectories(trading, _MONTH)),
+            *(
+                ((month, True) for month in _subdirectories(restored_trading, _MONTH))
+                if restored_trading is not None
                 else ()
             ),
         ]
@@ -1025,10 +1087,11 @@ class RawStore:
             return None
         account = self._directory(external_account_id)
         candidates = [(account / f"{key}{_SUFFIX}", False)]
-        candidates.append((account / _day_of(key) / f"{key}{_SUFFIX}", False))
-        restored = self._restored(account / _day_of(key))
-        if restored is not None:
-            candidates.append((restored / f"{key}{_SUFFIX}", True))
+        for unit in (account / _day_of(key), account / TRADING_DIRECTORY / _month_of_key(key)):
+            candidates.append((unit / f"{key}{_SUFFIX}", False))
+            restored = self._restored(unit)
+            if restored is not None:
+                candidates.append((restored / f"{key}{_SUFFIX}", True))
         for file, was_restored in candidates:
             try:
                 with gzip.open(file) as opened:

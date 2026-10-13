@@ -91,8 +91,8 @@ from meridian.v1 import sidecar_pb2
 
 from . import history, records
 from .activities import KINDS as ACTIVITY_KINDS
-from .declaration import ACTIVITY_KIND, KINDS, RESPONSES_KIND
-from .linking import LINKS_AT_ONCE, Link, Links, LinkView, Offered, refusal
+from .declaration import ACTIVITY_KIND, KINDS, RESPONSES_KIND, TRADING_KIND
+from .linking import LINKS_AT_ONCE, Link, Links, LinkView, Offered, refusal, refused
 from .normalise import REMEDY, AccountView, ConnectionView, Holding, Serving, SyncState
 from .plan_codes import PlanCodeLink
 from .raw import (
@@ -160,7 +160,10 @@ RECONNECT = f"{CONNECTIONS}/reconnect"
 # Enabling trading on a connection (contract v22; step 5's Q10), by an
 # admin of the plugin's connectivity role.
 ENABLE_TRADING = f"{CONNECTIONS}/enable-trading"
-LINK = f"{ACCOUNTS}/link"
+# Written out, not built from ACCOUNTS: `meridian plugin check` reads the
+# path of a route a tool replaces (link_account's) as written, or through a
+# constant bound to it as text.
+LINK = "/admin/accounts/link"
 INTENTS = ("link", "create", "unlink")
 SEVERAL = "link-several"
 # Where the templates' forms post, named here once.
@@ -285,6 +288,15 @@ NOT_LINKABLE = (
     "admin grants this plugin the accounts it may link to, on its Accounts tab."
 )
 NOT_LINKABLE_REASON = "REFUSAL_REASON_ACCOUNT_NOT_LINKABLE"
+
+
+def _not_done(failed: meridian.MeridianError) -> str:
+    """What a person is told of a link not made: refused only where the
+    sidecar refused it (`linking.refused`, by the SDK's type), its words as
+    they are."""
+    if refused(failed):
+        return f"The sidecar refused this: {refusal(failed)}"
+    return f"That was not done: {refusal(failed)}"
 
 
 def _not_linkable(failed: Exception) -> bool:
@@ -1153,8 +1165,6 @@ def _field(form: Mapping[str, list[str]], name: str) -> str:
     levels="admin",
     roles="custody",
     methods=["POST"],
-    tool=False,
-    why="its tool is link_account's, below",
 )
 async def link(request: meridian.Request) -> meridian.Response:
     """Link, create and link, or unlink one of the accounts the last read
@@ -1200,7 +1210,7 @@ async def link(request: meridian.Request) -> meridian.Response:
             notice = (
                 Notice(NOT_LINKABLE, "bad")
                 if _not_linkable(refused_link)
-                else Notice(f"The sidecar refused this: {refusal(refused_link)}", "bad")
+                else Notice(_not_done(refused_link), "bad")
             )
         except Exception as failed:
             notice = Notice(f"That failed: {type(failed).__name__}", "bad")
@@ -1281,7 +1291,7 @@ async def link_tool(request: meridian.Request) -> meridian.Response:
                 ("account_id", "not an account a deployment admin granted this plugin"),
                 reason="account_not_linkable",
             )
-        pages.refuse(f"The sidecar refused this: {refusal(refused_link)}")
+        pages.refuse(_not_done(refused_link))
     except Exception as failed:
         pages.refuse(f"That failed: {type(failed).__name__}", reason="unavailable")
     # Read again, so its rows follow the link.
@@ -2195,8 +2205,13 @@ MOST_OFFSET = 100_000
 _KIND_LABEL = {
     ACTIVITY_KIND.name: ACTIVITY_KIND.label,
     RESPONSES_KIND.name: RESPONSES_KIND.label,
+    TRADING_KIND.name: TRADING_KIND.label,
 }
-_KIND_SHORT = {ACTIVITY_KIND.name: "Activity", RESPONSES_KIND.name: "Responses"}
+_KIND_SHORT = {
+    ACTIVITY_KIND.name: "Activity",
+    RESPONSES_KIND.name: "Responses",
+    TRADING_KIND.name: TRADING_KIND.label,
+}
 _OUTCOME = {
     sidecar_pb2.MOVE_OUTCOME_ARCHIVED: "archived",
     sidecar_pb2.MOVE_OUTCOME_RESTORED: "restored",

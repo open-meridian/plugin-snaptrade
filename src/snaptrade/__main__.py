@@ -46,7 +46,7 @@ import meridian
 from meridian import edge
 
 from .declaration import DECLARATION
-from .linking import Links
+from .linking import Links, failure
 from .page import TITLE, pages, serve
 from .raw import RawStore, storage_root
 from .settings import DECLARED, config_from
@@ -93,7 +93,7 @@ async def poll(syncer: Syncer, configured: asyncio.Event, wake: asyncio.Event) -
         except meridian.MeridianError as failed:
             # The sidecar refused something the read needed; say so and keep
             # the schedule rather than spin.
-            log.warning("this read stopped: %s", failed)
+            log.warning("this read stopped: %s", failure(failed))
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(wake.wait(), timeout=syncer.config.poll_seconds)
 
@@ -107,7 +107,7 @@ async def trade(trader: Trader, syncer: Syncer) -> None:
             lambda: SYNTHETIC_POLL_SECONDS if syncer.config.synthetic else POLL_SECONDS
         )
     except meridian.MeridianError as failed:
-        log.warning("trading stopped: %s", failed)
+        log.warning("trading stopped: %s", failure(failed))
 
 
 async def run() -> None:
@@ -169,6 +169,9 @@ async def run() -> None:
                     else ()
                 ),
                 sent=Sent(sent_file(syncer.raw)),
+                # The venue account codes its `ems` mapped on it, as the
+                # account scope delivers them (W11.22).
+                scope=lambda: links.scope,
             )
             tasks.append(asyncio.create_task(trade(trader, syncer)))
         await stopped.wait()

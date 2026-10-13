@@ -35,10 +35,13 @@ nothing and its status dot names what is missing.
 The other settings have sensible defaults: how often to read (**Read
 every**, five minutes) and when a sync counts as **Stale after** (24 hours).
 
-**How long records stay, and what happens after.** Two kinds of record are
-kept: **Raw responses**, what SnapTrade answered each read, and **Reported
-activity**, each activity's own record. Each has a **window**, how long it
-stays in the plugin's storage (30 days and seven years by default), and a
+**How long records stay, and what happens after.** Three kinds of record
+are kept: **Raw responses**, what SnapTrade answered each read; **Reported
+activity**, each activity's own record; and **Trading**, each order sent to
+SnapTrade, each cancel and replace, and SnapTrade's answers about orders.
+Each has a **window**, how long it stays in the plugin's storage (30 days,
+seven years and seven years by default; the defaults are not a claim that
+any rule your firm follows is met), and a
 choice of what happens past it: **Archived** (moved to your deployment's
 archive, where you can restore it), **Kept** (left where it is) or
 **Deleted**. Archived is the default where your deployment's admin has

@@ -36,8 +36,8 @@ column's code alike), which core resolves, dated, to the currency's cash
 instrument; its dates were valid ISO text already. Since contract v16, an
 edge plugin's older records move to the archive
 (meridian-design tasks/sdk-contract/an-edge-plugins-older-records-move-to-the-
-archive): its two kinds of raw record, reported activity and raw responses,
-are declared with their windows, which became the SDK's window settings
+archive): its kinds of raw record, reported activity and raw responses (and
+from contract v22 trading exchanges), are declared with their windows, which became the SDK's window settings
 (0.12.0's two settings dropped: the admin sets the windows once at upgrade,
 "From 0.12.0", below); past its window a day of raw responses or a
 month of activity records is archived, kept or deleted as an admin of the
@@ -197,8 +197,33 @@ owner's alone, manual, later.
   placement is held, and sent once the instruction is lifted if the book
   still holds it queued. A stop cancels at SnapTrade at once every working
   placement it covers, and reports each cancel as a fact naming the stop's
-  entry, then SnapTrade's confirmation. A cancel the `ems` asks for is sent
-  too. A replace is not sent in this version.
+  entry, then SnapTrade's confirmation.
+- **A cancel or a replace the `ems` asks for** (W11.9). The placement carries
+  its own change requests (`Placement.change_requests`, approved
+  2026-10-13), and the plugin tells a cancel from a replace by the request's
+  kind, never by a condition's words. A cancel is sent at SnapTrade, its next
+  answer reporting the order cancelled. A replace is sent at SnapTrade's
+  replace endpoint (`POST /accounts/{accountId}/trading/replace`, which
+  SnapTrade supports at some brokerages) with the new quantity, limit and
+  time in force, and reported replaced with the quantity and limit now;
+  where SnapTrade gives the order a new brokerage order ID, as it says a
+  brokerage that cancels and places again does, the new ID is reported and
+  followed, its fills counted on from the old order's. A change SnapTrade
+  refuses -- a cancel of an order already ended, a replace at a brokerage
+  that takes none -- is reported as the placement rejected while it works,
+  `venue rejected` with SnapTrade's code and words as reported, which the
+  book reads as the venue refusing the change: the request ends refused and
+  the placement works on (transitions row 14, FIX's OrderCancelReject). A
+  replace the account's catalogue does not offer (a time in force it lacks
+  for the order type) is refused the same way, `unsupported`, with nothing
+  sent. A replace SnapTrade never answered is not sent again: the read that
+  shows the order's new quantity and limit, or its new order, reports it
+  replaced. A cancel pending beside a replace is sent alone, the book ending
+  the replace with it.
+- **The accounts mapped on it** are the venue account map the account scope
+  delivers (`AccountScope.venue_account_map`, W11.22): the codes its `ems`
+  mapped on this instance, never inferred from the placements seen. Each
+  mapped account's orders are read on every poll.
 - **Its catalogue** (W11.20; Q31): on start and as SnapTrade's accounts are
   read again, per venue account code, the order types and times in force
   SnapTrade's place-order API takes (Market, Limit, Stop, StopLimit; Day,
@@ -207,22 +232,34 @@ owner's alone, manual, later.
   describe on FIXatdl's model. A brokerage refusing one of them answers at
   placement, `venue rejected`. The synthetic brokerages state their own
   (synthetic Alpaca takes no good-till-date order).
-- **Orders placed outside the platform** (step 5's Q11). An order SnapTrade
-  lists on an account whose code an `ems` mapped on this plugin (as a
-  placement naming it showed) that no placement names was placed at the
-  brokerage directly: it is recorded (origin venue), its ticker resolved by
-  the order's time or reported missing, placed on this plugin itself (a
-  direct order), and its fills reported as any placement's. The v22 book
-  takes a placement as a user's act and refuses one sent for no one; where
-  it does, the order stands recorded and its fills are reported on the
-  order itself.
+- **Orders placed outside the platform are not reported in v22.** `portfolio`
+  and the `oms` own orders, the `ems` owns placements, and this plugin owns
+  fills (ruled 2026-10-13): it never records an order or creates a
+  placement, and the sidecar refuses either from a connectivity plugin. An
+  order SnapTrade lists on a mapped account that no placement names -- one
+  the brokerage took outside the platform -- is kept in SnapTrade's answer as
+  received, said once in the log, and nothing more: no order, no placement,
+  and its fill is not reported. **Venue-originated fills are planned for
+  v23**: the fill reported on no order and no placement, waiting in the book
+  as unmatched, for the `ems` to accept it (linking it to an order) or answer
+  it DK. SnapTrade's API has no message for either answer, so the plugin
+  will send SnapTrade nothing for them.
+- **A venue's symbol on a fill.** Where SnapTrade's order record names a
+  symbol other than the ticker placed (one it renamed while the order
+  worked), the symbol is resolved by the fill's time and reported missing
+  where it names none of the deployment's records; the fill is the
+  placement's either way.
 - **Every request and answer is kept** in the plugin's storage as a raw
-  record of the account, under the raw responses' window (the Raw records
-  tab lists them as reads). SnapTrade's default retention for trading
-  records is the product owner's to rule (the plan's "Approves", 6).
+  record of the account, the Raw records tab listing them among its reads,
+  as their own kind, `trading` (approved 2026-10-13): kept 2555 days (seven
+  years) by default from when each was made, then archived, kept or deleted
+  as an admin of the plugin sets in Settings (`trading_window_days`,
+  `trading_past_window`), as the other two kinds are. The default is a
+  default: nothing here is a claim that it meets any rule a firm is held to,
+  which is the firm's to decide.
 - **What it does not do**: a locate (SnapTrade offers no locate API), a
   place of execution (SnapTrade states none: never the listing exchange in
-  its place), a replace, a strategy.
+  its place), a venue-originated fill (v23's), a strategy.
 
 It polls SnapTrade for its working orders every 15 seconds (every second in
 synthetic mode), within SnapTrade's limit of ten requests a minute per
@@ -230,10 +267,12 @@ account.
 
 **The connectivity suite** (`tests/test_connectivity_suite.py`) runs every
 case of the SDK's suite against the plugin's own Trader and the synthetic
-brokerage: 23 pass, and six are not presented, each with why, as the suite
-lets a case marked `about` or `about_field` be: `reads-a-calendar` (it asks
-the date read for each fill's settlement date; it reads no calendar's
-days), `records-a-locate` (SnapTrade offers no locate API),
+brokerage: 20 of its 27 pass, and seven are not presented, each with why,
+as the suite lets a case marked `about` or `about_field` be:
+`reads-a-calendar` (it asks the date read for each fill's settlement date;
+it reads no calendar's days), `records-a-locate` and
+`resolves-a-venue-symbol-by-the-facts-date` (SnapTrade offers no locate
+API),
 `resolves-an-executions-venue` and `reports-a-venue-not-held` (SnapTrade
 states no fill's place of execution), and
 `reads-whether-releases-wait-for-compliance` and
@@ -418,6 +457,8 @@ without any of them.
 | `activity_past_window` | Reported activity: past the window | choice | no | no | the SDK's: `archived`, `kept` or `deleted`; default `archived` where the deployment gives the instance an archive, else `kept`. Never deleted within the history SnapTrade reported, nor inside the hold |
 | `responses_window_days` | Raw responses: window | number, days | no | no | the SDK's: how long SnapTrade's responses to each read stay in storage for the Raw records tab; default 30, 1 to 36500, never below the hold |
 | `responses_past_window` | Raw responses: past the window | choice | no | no | the SDK's: `archived`, `kept` or `deleted`, defaulting as above |
+| `trading_window_days` | Trading: window | number, days | no | no | the SDK's (contract v22): how long each exchange with SnapTrade's trading API (a place, a cancel, a replace, an account's orders) stays in storage, from when it was made; default 2555 (seven years), 1 to 36500, never below the hold. A default, not a claim about any rule |
+| `trading_past_window` | Trading: past the window | choice | no | no | the SDK's: `archived`, `kept` or `deleted`, defaulting as above |
 | `plan_code_links` | Plan-code links | table: account, plan code, instrument | no | no | each plan's own fund code on an account, linked to the instrument record it is; at most 200 rows. Each row arrives with who changed it and when |
 | `counted_as_cash` | Cash links | table: account (external account, optional), symbol (text), currency (text, an ISO 4217 code), the order of Plan-code links' columns | no | no | positions a custodian holds as cash that SnapTrade does not mark a cash equivalent, such as Fidelity's FDIC-insured deposit as an IRA's core position (`FDIC99532`): each is sent as the cash of its currency, naming who listed it and when (above). The symbol as SnapTrade names it; a blank account is every account holding it, and a row naming the account comes first; at most 200 rows. A fund stays a fund. Where SnapTrade marks the position itself, its own flag decides and the row is not read |
 | `sample_data` | Sample data | on/off, developer | no | no | serve built-in responses instead of calling SnapTrade; default off |
@@ -912,8 +953,9 @@ one appears in a body. The tests hold a hostile body to that, and every kept
 byte to having no credential in it.
 
 **Where, and for how long.** In the storage the deployment grants an edge
-plugin (decisions/028): the version declares it asks for it, with its two
-kinds of raw record and the longest a window may be
+plugin (decisions/028): the version declares it asks for it, with its
+kinds of raw record (reported activity, raw responses, and from contract v22
+trading exchanges) and the longest a window may be
 (`src/snaptrade/declaration.py`), and the launcher, the
 chart and the plugin harness mount a volume for this instance alone at the
 path `MERIDIAN_STORAGE_DIR` names, kept across restarts and new versions,
@@ -942,8 +984,8 @@ question 5, and the product owner, 2026-10-05). A few hundred bytes an
 activity.
 
 **The archive** (contract v16; meridian-design spec/an-edge-plugins-older-
-records-move-to-the-archive). A unit is an account's day of reads or its month
-of activity records, moved whole once its day or month has ended and its last
+records-move-to-the-archive). A unit is an account's day of reads, its month
+of trading exchanges or its month of activity records, moved whole once its day or month has ended and its last
 record is past its kind's window, as the kind's past-the-window setting says
 (`src/snaptrade/archive.py`), when the settings arrive (at start and on every
 change) and after each read:
@@ -1083,7 +1125,10 @@ role ("Trading", above), every page naming the roles it serves (two roles,
 contract v15) and the custody pages reading the custody role's accounts
 (`caller.read_for("custody")`), the connectivity suite, and
 `tests/test_contract.py` knowing what v22 adds (the order path's
-operations and deliveries, `compute_date`, `read_calendar`).
+operations and deliveries, `compute_date`, `read_calendar`); then, for
+meridian-schema 3d15320 (approved 2026-10-13), a change told by
+`Placement.change_requests`, the account scope's venue account map, no
+venue-originated order, and the `trading` kind.
 To move to a new SDK release, change all three together and run
 `make ci-local`; `tests/test_contract.py` fails on any operation or parameter
 the new SDK has that this plugin does not know, naming it.
@@ -1192,13 +1237,15 @@ this plugin's own page, it:
     connection under the connectivity role's admin (Enable trading on
     Connections); a buy of 10, limit, day, released, claimed and placed at
     SnapTrade's instance, acknowledged with SnapTrade's order ID and filled
-    4 then 6, each fill with the settlement date SnapTrade's activity
-    states (the harness holds no settlement rule for a record it minted, so
-    the date read answers none); the order the brokerage took outside the
-    platform recorded, origin the venue, with its fill (the v22 book refuses
-    a placement sent for no one, so its fill is reported on the order); the
-    position up by 13; a good-till-date order rejected `unsupported`; a
-    cancel the desk asks for, cancelled at SnapTrade and in the book; a
+    4 then 6, each fill with its settlement date (the date read's, else the
+    one SnapTrade's activity states); the position up by 10, and the order
+    the brokerage took outside the platform, on the mapped account, left
+    alone: no order recorded, no fill (ruled 2026-10-13); a good-till-date
+    order rejected `unsupported`; a working placement replaced at SnapTrade
+    to a new limit, SnapTrade's new order ID recorded and the request
+    applied, then a replace to good till date refused `unsupported` with
+    the placement working on, then the cancel the desk asks for, cancelled
+    at SnapTrade and in the book; a
     placement held back under a pause and sent once it lifts; a stop
     cancelling a working placement at once, the cancel naming the stop; and
     the plugin's container made again with a placement working, which sends

@@ -12,6 +12,7 @@ else, and the orders go to SnapTrade's synthetic brokerage.
   /claim?order=                           the claimed working condition (ems)
   /place?order=&quantity=&code=           CreatePlacement at SnapTrade's instance
   /cancel?placement=                      RequestPlacementChange, a cancel (ems)
+  /replace?placement=[&limit=][&quantity=][&tif=]  RequestPlacementChange, a replace (ems)
   /map?account=&code=                     MapVenueAccount on SnapTrade (ems's admin)
   /orders?account=                        ListOrders, a line each
   /resolve?figi=&symbol=                  ResolveIdentifier: the record custody's read named
@@ -63,7 +64,17 @@ def order_json(order):
                 "placement_id": p.placement_id,
                 "state": ops.PlacementState.Name(p.status.state),
                 "venue_order_id": p.venue_order_id,
+                "venue_order_ids": list(p.venue_order_ids),
                 "rejection": ops.RejectionReason.Name(p.rejection_reason),
+                "quantity": str(as_decimal(p.quantity)),
+                "limit": str(as_decimal(p.limit_price.amount)) if p.HasField("limit_price") else "",
+                "changes": [
+                    [
+                        ops.PlacementChangeKind.Name(c.placement_change.kind),
+                        ops.ChangeRequestOutcome.Name(c.outcome),
+                    ]
+                    for c in p.change_requests
+                ],
             }
             for p in order.placements
         ],
@@ -131,6 +142,25 @@ class Desk:
                 placement_id=one(query, "placement"),
                 change=meridian.PlacementChange(kind=ops.PLACEMENT_CHANGE_KIND_CANCEL),
                 reason="cancelled by the desk",
+                acting_for=caller,
+            )
+            return {"change_request_id": done.change_request_id}
+        if path == "/replace":
+            tif = one(query, "tif")
+            done = await self.call(
+                "request_placement_change",
+                placement_id=one(query, "placement"),
+                change=meridian.PlacementChange(
+                    kind=ops.PLACEMENT_CHANGE_KIND_REPLACE,
+                    quantity=Decimal(one(query, "quantity")) if one(query, "quantity") else None,
+                    limit_price=(
+                        meridian.Money(Decimal(one(query, "limit")), "USD")
+                        if one(query, "limit")
+                        else None
+                    ),
+                    time_in_force=TIMES[tif] if tif else None,
+                ),
+                reason="replaced by the desk",
                 acting_for=caller,
             )
             return {"change_request_id": done.change_request_id}

@@ -14,13 +14,18 @@ no paper account and no trading API is reached.
    compliance plugin here).
 2. A buy of 10, limit, day: released, claimed, placed at SnapTrade's
    instance, acknowledged with SnapTrade's order ID and filled 4 then 6; the
-   order filled. The account's code mapped, the order the synthetic
-   brokerage took outside the platform is recorded, origin the venue, with
-   its fill of 3; the book's position up by 13 with its pending lines.
+   order filled; the book's position up by 10 with its pending lines. The
+   order the synthetic brokerage took outside the platform, on the mapped
+   account, is left alone: no order recorded, no fill (ruled 2026-10-13;
+   venue-originated fills are v23's).
 3. Good till date, which synthetic Alpaca takes none of: rejected
    `unsupported`, nothing refused by the book.
-4. A cancel the desk asks for: a working placement of 200 cancelled at
-   SnapTrade, then in the book.
+4. A replace and a cancel the desk asks for, each told by its kind on the
+   placement's change request: a working placement of 200 replaced at
+   SnapTrade to a limit of 229.50, SnapTrade's new order ID followed and the
+   request applied; a replace to good till date, which the account's
+   catalogue lacks, refused `unsupported`, the placement working on; then
+   cancelled at SnapTrade, then in the book.
 5. A pause on SnapTrade: a placement held back, queued; lifted, it is sent
    and filled. A stop with a placement of 200 working: SnapTrade cancels it
    at once, reporting the cancel naming the stop; lifted again.
@@ -178,11 +183,13 @@ def run():
     # The desk's 4 then 6, and the order the brokerage took outside the
     # platform (SYN-OUT-0001, 3 at 226.10), recorded once its account's code
     # was mapped.
-    must(fills == [["3", "226.1"], ["4", "230"], ["6", "230"]], f"step 2, the fills: {executions}")
+    must(fills == [["4", "230"], ["6", "230"]], f"step 2, the fills: {executions}")
     position = [line for line in book.splitlines()
                 if line.startswith("position|E2E Orders|") and "AAPL" in line]
-    must(position and position[0].split("|")[4] == "13",
-         f"step 2, the position up by the desk's 10 and the venue's 3: {position}")
+    must(position and position[0].split("|")[4] == "10",
+         f"step 2, the position up by the desk's 10, nothing of the venue's own order: {position}")
+    listed = desk("write", f"/orders?account={account}")["orders"]
+    must(len(listed) == 1, f"step 2, no order recorded for the venue's own: {listed}")
     must(any(line.startswith("pending|E2E Orders|") for line in book.splitlines()),
          "step 2, pending to the settlement date the date read gave")
 
@@ -192,10 +199,30 @@ def run():
                      "step 3, not rejected")
     must(rejected["rejection"] == "REJECTION_REASON_UNSUPPORTED", f"step 3: {rejected}")
 
-    # 4. A cancel the desk asks for.
+    # 4. A replace, a replace not offered, and a cancel the desk asks for.
     order4, placement4 = placed(account, aapl, "200", "cancel-200")
-    until(60, placement_state(account, order4, placement4, "PLACEMENT_STATE_WORKING"),
-          "step 4, not working")
+    working = until(60, placement_state(account, order4, placement4, "PLACEMENT_STATE_WORKING"),
+                    "step 4, not working")
+    first_id = working["venue_order_id"]
+    desk("write", f"/replace?placement={placement4}&limit=229.50")
+
+    def replaced():
+        held = placement_of(order_of(account, order4), placement4)
+        done = held["changes"] == [["PLACEMENT_CHANGE_KIND_REPLACE", "CHANGE_REQUEST_OUTCOME_APPLIED"]]
+        return held if done else None
+
+    held4 = until(60, replaced, "step 4, the replace was not applied")
+    must(held4["limit"] in ("229.5", "229.50") and held4["venue_order_id"] not in ("", first_id)
+         and held4["venue_order_ids"] == [first_id, held4["venue_order_id"]],
+         f"step 4, replaced at SnapTrade with its new order ID: {held4}")
+    desk("write", f"/replace?placement={placement4}&tif=gtd")
+
+    def refused():
+        held = placement_of(order_of(account, order4), placement4)
+        last = held["changes"][-1:] == [["PLACEMENT_CHANGE_KIND_REPLACE", "CHANGE_REQUEST_OUTCOME_REJECTED"]]
+        return held if last and held["state"] == "PLACEMENT_STATE_WORKING" else None
+
+    until(60, refused, "step 4, the replace not offered was not refused with the placement working")
     desk("write", f"/cancel?placement={placement4}")
     until(60, placement_state(account, order4, placement4, "PLACEMENT_STATE_CANCELLED"),
           "step 4, not cancelled")
@@ -238,10 +265,11 @@ def run():
     sent = snaptrade_orders()
     print(
         f"orders OK: trading enabled on Alpaca's connection, the desk's buy of 10 acknowledged "
-        f"({held['venue_order_id']}) and filled 4 then 6, each with the settlement date "
-        f"SnapTrade's activity states (the harness holds no settlement rule for a minted "
-        f"record), and the order the brokerage took outside the platform recorded with its "
-        f"fill of 3, the position up by 13; good till date rejected unsupported; a cancel at SnapTrade; "
+        f"({held['venue_order_id']}) and filled 4 then 6, each with its settlement date, "
+        f"the position up by 10, the order the brokerage took outside "
+        f"the platform left alone; good till date rejected unsupported; a replace at "
+        f"SnapTrade to its new order ({held4['venue_order_id']}), one not offered refused "
+        f"unsupported, and a cancel at SnapTrade; "
         f"a placement held under a pause and sent when it lifted; a stop's cancel at once; a "
         f"restart sending no second order and cancelling at SnapTrade; {len(sent)} orders at "
         f"the synthetic brokerage in all"

@@ -24,7 +24,12 @@ orders taking it one step on, so a test and the e2e see every state:
   whole unit), then `EXECUTED`, every unit filled, at the limit price or
   else the instrument's synthetic price; more than 100 stays `ACCEPTED`,
   working, until cancelled;
-- cancelled: `CANCELED`, what was filled kept.
+- cancelled: `CANCELED`, what was filled kept;
+- replaced, while it works: the order `REPLACED` and a new one in its place,
+  as SnapTrade says a brokerage usually does (cancelling the order and
+  placing another), its own brokerage order ID, the same client order ID,
+  the units now less what the old one filled, at the price and time in force
+  asked; one ended can no longer be replaced (HTTP 400).
 
 And by the ticker, so each of SnapTrade's answers has an order to show it:
 
@@ -36,7 +41,9 @@ And by the ticker, so each of SnapTrade's answers has an order to show it:
 - `SYNBUST`: executed in full, then on a later read its filled quantity
   back to 0, the brokerage having busted the fill (`CANCELED`);
 - `SYNFEE`: cancelled with nothing filled, the brokerage charges a cancel fee,
-  a `FEE` activity whose `external_reference_id` is the order's brokerage ID.
+  a `FEE` activity whose `external_reference_id` is the order's brokerage ID;
+- `SYNREN`: renamed while it works: once it fills, its record names the
+  symbol `SYNRNM`, as a brokerage that renamed the ticker would.
 
 Each fill is also an activity of the account, as a brokerage's activity feed
 states it: a `BUY` or `SELL` of the units filled, at the order's price, its
@@ -45,8 +52,10 @@ the simulated brokerage states, the next weekday after the trade date (as
 meridian-core's simulated venue states one).
 
 One order the brokerage took outside the platform is on the Alpaca margin
-account from the start (`SYN-OUT-0001`, AAPL, bought and executed), for a
-venue-originated order.
+account from the start (`SYN-OUT-0001`, AAPL, bought and executed), with its
+fill in the account's activity: the order a test and the e2e show the plugin
+reads and leaves alone, recording no order and reporting no fill
+(venue-originated fills are v23's).
 """
 
 from __future__ import annotations
@@ -61,7 +70,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 from typing import Any
 
-from .venue import Json, OrderAsked, VenueError, parse_exact
+from .venue import Json, OrderAsked, ReplaceAsked, VenueError, parse_exact
 
 #: The ticker each scenario is keyed by (above).
 REJECTED = "SYNREJ"
@@ -69,6 +78,8 @@ LOST = "SYNLOST"
 ODD = "SYNODD"
 BUSTED = "SYNBUST"
 FEE_ON_CANCEL = "SYNFEE"
+RENAMED = "SYNREN"
+RENAMED_TO = "SYNRNM"
 
 #: A status SnapTrade's mapping (trading.py) does not know.
 ODD_STATUS = "HELD_FOR_REVIEW"
@@ -282,6 +293,49 @@ class SyntheticTrading:
             "cancelling an order", said={"code": "1069", "detail": "No such order"}, status=404
         )
 
+    def replace(self, account_id: str, asked: ReplaceAsked) -> Json:
+        """A working order replaced by a new one (above): the new one's record."""
+        for record in self._orders(account_id):
+            if record["brokerage_order_id"] != asked.brokerage_order_id:
+                continue
+            if record["status"] not in ("ACCEPTED", "PARTIAL", ODD_STATUS):
+                raise VenueError(
+                    "replacing an order",
+                    said={"code": "1071", "detail": "The order can no longer be replaced"},
+                    status=400,
+                )
+            now = _stamp(self._now())
+            filled = Decimal(record["filled_quantity"])
+            record.update(status="REPLACED", open_quantity="0", time_updated=now)
+            number = int(self._held["next"])
+            self._held["next"] = number + 1
+            units = asked.units - filled
+            placed: Json = {
+                **record,
+                "brokerage_order_id": f"SYN-ORD-{number:04d}",
+                "status": "ACCEPTED",
+                "total_quantity": str(units),
+                "open_quantity": str(units),
+                "canceled_quantity": "0",
+                "filled_quantity": "0",
+                "execution_price": None,
+                "limit_price": None if asked.price is None else str(asked.price),
+                "stop_price": None if asked.stop is None else str(asked.stop),
+                "order_type": asked.order_type,
+                "time_in_force": asked.time_in_force,
+                "time_placed": now,
+                "time_updated": now,
+                "time_executed": None,
+            }
+            placed.pop("reads_executed", None)
+            self._orders(account_id).append(placed)
+            self._save()
+            answered: Json = parse_exact(json.dumps(placed))
+            return answered
+        raise VenueError(
+            "replacing an order", said={"code": "1069", "detail": "No such order"}, status=404
+        )
+
     def activities(self, account_id: str) -> list[Json]:
         listed: list[Json] = self._held["activities"].get(account_id, [])
         return [parse_exact(json.dumps(activity)) for activity in listed]
@@ -348,6 +402,8 @@ class SyntheticTrading:
         elif status == "ACCEPTED" and total <= FILLS_AT_ONCE:
             first = (total * Decimal("0.4")).quantize(Decimal(1), rounding=ROUND_HALF_EVEN)
             first = first if 0 < first < total else total
+            if ticker == RENAMED:
+                record["universal_symbol"] = _symbol(RENAMED_TO)
             record.update(
                 status="PARTIAL" if first < total else "EXECUTED",
                 filled_quantity=str(first),

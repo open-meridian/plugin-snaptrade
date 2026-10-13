@@ -16,6 +16,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import meridian
 from meridian.plugin.v1 import operations_pb2 as ops
 from meridian.suites import Recorder
 
@@ -78,6 +79,44 @@ def placement(
     return held
 
 
+def asking(
+    held: ops.Placement,
+    kind: ops.PlacementChangeKind,
+    crq: str = "CRQ-01JAE00000000000000000001",
+    **change: Any,
+) -> ops.Placement:
+    """The placement as the book delivers it with a change requested: the
+    request on it, with its PlacementChange (W11.9, approved 2026-10-13)."""
+    asked = ops.Placement()
+    asked.CopyFrom(held)
+    asked.status.conditions.append(
+        ops.StandingPlacementCondition(condition=ops.PLACEMENT_CONDITION_CHANGE_REQUESTED)
+    )
+    asked.change_requests.append(
+        ops.ChangeRequest(
+            change_request_id=crq,
+            order_id=held.order_id,
+            placement_id=held.placement_id,
+            placement_change=ops.PlacementChange(kind=kind, **change),
+            outcome=ops.CHANGE_REQUEST_OUTCOME_PENDING,
+        )
+    )
+    return asked
+
+
+def scope(*codes: str, instance: str = "snaptrade") -> meridian.AccountScope:
+    """The account scope a connectivity plugin is delivered: its `ems`'s
+    mappings on it (W11.22)."""
+    return meridian.AccountScope(
+        venue_account_map=meridian.VenueAccountMap(
+            ems_instance_id="desk",
+            mappings=tuple(
+                meridian.VenueAccountMapping(instance, code, ACCOUNT) for code in codes
+            ),
+        )
+    )
+
+
 def order_of(held: ops.Placement, **changes: Any) -> ops.Order:
     order = ops.Order(
         order_id=held.order_id,
@@ -106,10 +145,15 @@ class Rig:
     on Alpaca's connection; the book's answers as the recorder gives them."""
 
     def __init__(
-        self, recorder: Recorder, ticker: str = "AAPL", sent: Sent | None = None
+        self,
+        recorder: Recorder,
+        ticker: str = "AAPL",
+        sent: Sent | None = None,
+        mapped: tuple[str, ...] = (ALPACA_CODE,),
     ) -> None:
         self.recorder = recorder
         self.sent = sent
+        self.scope = scope(*mapped)
         self.trading = SyntheticTrading(clock(NOW))
         self.trading.enable_trading(synthetic.ALPACA)
         self.venue = SyntheticVenue(clock(NOW), self.trading)
@@ -134,6 +178,7 @@ class Rig:
             raw=self.raw,
             synthetic=lambda: True,
             sent=self.sent,
+            scope=lambda: self.scope,
         )
 
     def _listed(self, _: Any) -> ops.ListOrdersResult:
