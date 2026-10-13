@@ -108,6 +108,33 @@ def refusal(failed: meridian.MeridianError) -> str:
     return str(failed)
 
 
+#: The kinds of failed call no component answered (the SDK's `CallFailed.kind`):
+#: nothing handled it, or it timed out. Every other was answered, and refused.
+UNANSWERED = ("no handler", "timeout")
+
+
+def refused(failed: meridian.MeridianError) -> bool:
+    """Whether a component answered the call with a refusal, by the SDK's
+    type for it (`CallFailed` and its `kind`; a `CommandRefused` carries its
+    code too), never by its words: a call nothing handled, one that timed
+    out, or a sidecar that never answered, was not refused."""
+    return isinstance(failed, meridian.CallFailed) and failed.kind not in UNANSWERED
+
+
+def failure(failed: BaseException) -> str:
+    """What went wrong, for a log, by its type and code: a refusal's code by
+    its name (`reason_name`), never read from its words, which follow."""
+    if isinstance(failed, meridian.NotLinked):
+        return f"{failed.topic}: refused, not linked: {failed.detail}"
+    if isinstance(failed, meridian.CommandRefused):
+        return f"{failed.topic}: refused, {failed.reason_name}: {failed.detail}"
+    if isinstance(failed, meridian.NotGranted):
+        return f"{failed.topic}: not granted: {failed.reason}"
+    if isinstance(failed, meridian.CallFailed):
+        return f"{failed.topic}: {failed.kind}: {failed.detail}"
+    return f"{type(failed).__name__}: {failed}"
+
+
 class Links:
     """The plugin's links as its account scope last gave them, and links sent
     for the admin viewing the page."""

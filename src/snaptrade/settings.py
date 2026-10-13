@@ -30,7 +30,8 @@ plugin's storage, and what is done with it past that, are two settings per
 kind the SDK declares for every edge plugin alike, from the kinds
 declaration.py declares: `activity_window_days` and `activity_past_window`
 for a reported activity's record, `responses_window_days` and
-`responses_past_window` for each read's raw responses. Their names are the
+`responses_past_window` for each read's raw responses, and from contract v22
+`trading_window_days` and `trading_past_window` for each trading exchange. Their names are the
 SDK's (`<kind>_window_days`, `<kind>_past_window`), reserved: this module
 declares neither, and reads them as delivered (`windows_from`).
 
@@ -81,10 +82,13 @@ DEFAULT_STALE_AFTER_HOURS = 24
 # take, and the SDK's names for those settings (W6.11, contract v16).
 RESPONSES = "responses"
 ACTIVITY = "activity"
+TRADING = "trading"
 RESPONSES_WINDOW = f"{RESPONSES}_window_days"
 RESPONSES_PAST = f"{RESPONSES}_past_window"
 ACTIVITY_WINDOW = f"{ACTIVITY}_window_days"
 ACTIVITY_PAST = f"{ACTIVITY}_past_window"
+TRADING_WINDOW = f"{TRADING}_window_days"
+TRADING_PAST = f"{TRADING}_past_window"
 # What is done with a record past its window: the SDK's three choices.
 ARCHIVED, KEPT, DELETED = "archived", "kept", "deleted"
 PAST_WINDOW = (ARCHIVED, KEPT, DELETED)
@@ -99,6 +103,11 @@ LEAST_RAW_RETENTION_DAYS = 1
 # within the history SnapTrade reported, which raw.py holds it to.
 DEFAULT_ACTIVITY_RETENTION_DAYS = 2555
 MOST_ACTIVITY_RETENTION_DAYS = 36500
+# How long a trading exchange's raw record stays in storage from when it was
+# made, by default (contract v22, approved 2026-10-13): seven years, as a
+# reported activity's; an admin of the plugin sets it, from a day up to the
+# most the SDK's window takes. A default, never a claim about any rule.
+DEFAULT_TRADING_RETENTION_DAYS = 2555
 
 _WITH_A_COMMERCIAL_KEY = meridian.AppliesWhen(KEY_TYPE, (COMMERCIAL,))
 
@@ -300,13 +309,14 @@ class Window:
 
 @dataclass(frozen=True)
 class Windows:
-    """The two kinds' windows (contract v16)."""
+    """The three kinds' windows (contract v16; `trading` from contract v22)."""
 
     responses: Window = Window(DEFAULT_RAW_RETENTION_DAYS, KEPT)
     activity: Window = Window(DEFAULT_ACTIVITY_RETENTION_DAYS, KEPT)
+    trading: Window = Window(DEFAULT_TRADING_RETENTION_DAYS, KEPT)
 
     def of(self, kind: str) -> Window:
-        return self.responses if kind == RESPONSES else self.activity
+        return {RESPONSES: self.responses, TRADING: self.trading}.get(kind, self.activity)
 
 
 @dataclass(frozen=True)
@@ -444,6 +454,7 @@ def windows_from(values: Values) -> Windows:
         activity=_window(
             values, ACTIVITY_WINDOW, ACTIVITY_PAST, DEFAULT_ACTIVITY_RETENTION_DAYS
         ),
+        trading=_window(values, TRADING_WINDOW, TRADING_PAST, DEFAULT_TRADING_RETENTION_DAYS),
     )
 
 

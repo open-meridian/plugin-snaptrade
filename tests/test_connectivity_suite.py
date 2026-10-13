@@ -7,11 +7,13 @@ quantity that works or fills), and run through this plugin's own Trader
 (trading.py) against the runner's recorder, as a placement heard is. Only
 the sidecar is stood in for. SIMULATED ONLY: nothing reaches SnapTrade.
 
-Six cases are not presented, each with why (`NOT_PRESENTED`), as the suite
-lets a case marked `about` or `about_field` be: SnapTrade reads no
+Seven cases are not presented, each with why (`NOT_PRESENTED`), as the
+suite lets a case marked `about` or `about_field` be: SnapTrade reads no
 calendar's days (it asks the date read for each fill's settlement date),
-offers no locate, states no fill's place of execution, and places what its
-`ems` released whatever releases wait for.
+offers no locate (so resolves no locate's symbol), states no fill's place of
+execution, and places what its `ems` released whatever releases wait for.
+Contract v22 has no venue-originated order (ruled 2026-10-13), and the
+suite no case for one.
 """
 
 from __future__ import annotations
@@ -38,6 +40,9 @@ NOT_PRESENTED = {
         "reads no calendar's days"
     ),
     "records-a-locate": "SnapTrade offers no locate API",
+    "resolves-a-venue-symbol-by-the-facts-date": (
+        "SnapTrade offers no locate API, so it resolves no locate's symbol"
+    ),
     "resolves-an-executions-venue": "SnapTrade states no fill's place of execution",
     "reports-a-venue-not-held": "SnapTrade states no fill's place of execution",
     "reads-whether-releases-wait-for-compliance": (
@@ -132,35 +137,20 @@ async def charged(recorder: Recorder) -> None:
     await rig.trader.poll()
 
 
-def venue_originated(resolves: bool = True) -> Producer:
-    """The order the synthetic brokerage took outside the platform, on the
-    account a placement showed an ems mapped on this plugin."""
-
-    async def produce(recorder: Recorder) -> None:
-        rig = Rig(recorder)
-        if not resolves:
-            recorder.answer(
-                "ResolveIdentifier",
-                lambda _: ops.ResolveIdentifierResult(
-                    found=False, miss_reason=ops.MISS_REASON_NOT_FOUND
-                ),
-            )
-        recorder.answer(
-            "RecordOrder",
-            lambda _: ops.RecordOrderResult(order=ops.Order(order_id="ORD-VENUE-1")),
-        )
-        recorder.answer(
-            "CreatePlacement",
-            lambda _: ops.CreatePlacementResult(
-                placement=ops.Placement(placement_id="PLC-VENUE-1")
-            ),
-        )
-        held = placement(quantity="200")
-        rig.holds(held)
-        await rig.hear(held)
-        await rig.trader.poll()
-
-    return produce
+async def renamed(recorder: Recorder) -> None:
+    """Filled under a symbol SnapTrade renamed while it worked, which names
+    none of the deployment's records."""
+    rig = Rig(recorder, synthetic_orders.RENAMED)
+    recorder.answer(
+        "ResolveIdentifier",
+        lambda _: ops.ResolveIdentifierResult(
+            found=False, miss_reason=ops.MISS_REASON_NOT_FOUND
+        ),
+    )
+    held = placement(quantity="1")
+    rig.holds(held)
+    await rig.hear(held)
+    await rig.trader.poll()
 
 
 async def paused(recorder: Recorder) -> None:
@@ -203,7 +193,6 @@ PRODUCERS: dict[str, Producer] = {
     "derives-the-same-execution-id-twice": the_same_fill_twice,
     "reports-a-bust": busted,
     "reports-a-charge": charged,
-    "records-a-venue-originated-order": venue_originated(),
     "sends-nothing-new-on-a-pause": paused,
     "cancels-at-the-venue-on-a-stop": stopped,
     "publishes-its-catalogue": started,
@@ -211,9 +200,7 @@ PRODUCERS: dict[str, Producer] = {
     "reads-its-placements-orders-on-start": started,
     "catches-up-placements-after-a-loss": caught_up,
     "reads-the-instructions-in-force-on-start": started,
-    "places-a-direct-order": venue_originated(),
-    "resolves-a-venue-symbol-by-the-facts-date": venue_originated(),
-    "reports-a-symbol-it-cannot-resolve": venue_originated(resolves=False),
+    "reports-a-symbol-it-cannot-resolve": renamed,
 }
 
 
@@ -229,7 +216,7 @@ def test_the_connectivity_suite_passes() -> None:
         "connectivity", PRODUCERS, not_presented=NOT_PRESENTED, instance_id="snaptrade"
     )
     assert report.passed, report.failures
-    assert len(report.passed_cases) == 23
+    assert len(report.passed_cases) == 20
     assert sorted(report.not_presented) == sorted(NOT_PRESENTED)
 
 

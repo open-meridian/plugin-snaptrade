@@ -17,6 +17,7 @@ from snaptrade.settings import Credentials
 from snaptrade.venue import (
     ActivityPage,
     OrderAsked,
+    ReplaceAsked,
     SnapTradeVenue,
     VenueError,
     activity_page_of,
@@ -75,6 +76,14 @@ class FakeSdk:
         self.connections = SimpleNamespace(
             list_brokerage_authorizations=self._answer("connections", b'[{"id": "c1"}]'),
             refresh_brokerage_authorization=self._answer("refresh", b'{"detail": "queued"}'),
+        )
+        # SnapTrade's trading API, never reached by a test: a stand-in that
+        # records what it was asked.
+        self.trading = SimpleNamespace(
+            replace_order=self._answer(
+                "replace",
+                b'{"brokerage_order_id": "B-2", "status": "ACCEPTED", "limit_price": 229.5}',
+            ),
         )
         self.authentication = SimpleNamespace(
             list_snap_trade_users=self._answer("users", b'["u-1", "u-2"]'),
@@ -167,6 +176,31 @@ async def test_the_connection_portal_is_asked_for_read_only_and_can_reconnect() 
     assert await venue.users() == ["u-1", "u-2"]
 
 
+async def test_a_replace_asks_snaptrades_replace_endpoint_and_reads_its_answer_exactly() -> (
+    None
+):
+    sdk = FakeSdk()
+    asked = ReplaceAsked(
+        brokerage_order_id="B-1",
+        action="BUY",
+        order_type="Limit",
+        time_in_force="Day",
+        units=Decimal("200"),
+        price=Decimal("229.50"),
+    )
+    answer = await SnapTradeVenue(COMMERCIAL, sdk=sdk).replace("a1", asked)
+    assert answer["brokerage_order_id"] == "B-2" and answer["limit_price"] == Decimal("229.5")
+    ((name, kwargs),) = sdk.asked
+    assert name == "replace"
+    assert {k: kwargs[k] for k in ("account_id", "brokerage_order_id", "units", "price")} == {
+        "account_id": "a1",
+        "brokerage_order_id": "B-1",
+        "units": 200.0,
+        "price": 229.5,
+    }
+    assert asked.body()["price"] == "229.50"
+
+
 async def test_a_failure_says_what_was_asked_and_never_the_secret(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -225,6 +259,9 @@ class OneAccountFails:
         return []
 
     async def cancel(self, account_id: str, brokerage_order_id: str) -> dict[str, Any]:
+        return {}
+
+    async def replace(self, account_id: str, asked: ReplaceAsked) -> dict[str, Any]:
         return {}
 
     async def refresh(self, connection_id: str) -> str:

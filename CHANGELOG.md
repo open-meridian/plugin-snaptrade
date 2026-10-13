@@ -18,10 +18,22 @@ reaches-a-venue-through-the-book, build row 16).
   filled quantity, each with a derived ID and the date read's settlement
   date; busts from a later read; a cancel's fee from the activities; pause
   and stop honoured, a stop's cancels reported naming the stop; the venue's
-  catalogue per venue account code; orders placed at the brokerage directly
-  recorded and placed on itself. Every request and answer kept as a raw
-  record. Synthetic mode trades with a simulated brokerage
-  (`synthetic_orders.py`), never SnapTrade.
+  catalogue per venue account code. A cancel or a replace the `ems` asks for
+  told by the placement's change request (`Placement.change_requests`), a
+  replace sent at SnapTrade's replace endpoint and its new order followed, a
+  change refused reported as the placement rejected while it works. The
+  codes mapped on it read from the account scope's venue account map. No
+  order recorded and no placement created: an order placed at the brokerage
+  outside the platform is kept as received and not reported (ruled
+  2026-10-13; venue-originated fills are planned for v23). Every request and
+  answer kept as a raw record of its own kind, `trading`. Synthetic mode
+  trades with a simulated brokerage (`synthetic_orders.py`), never
+  SnapTrade.
+- **A third kind of raw record, `trading`** (approved 2026-10-13): each
+  exchange with SnapTrade's trading API, kept 2555 days (seven years) by
+  default and then archived, kept or deleted as an admin sets
+  (`trading_window_days`, `trading_past_window`, the SDK's settings). A
+  default, not a claim about any rule.
 - **Enable trading** on Connections, per connection, by an admin of the
   `connectivity` role (`enable_trading`, checked by `check_enable_trading`):
   SnapTrade's Connection Portal reconnects the brokerage with trading
@@ -29,13 +41,19 @@ reaches-a-venue-through-the-book, build row 16).
 - **Every page names the roles it serves** (two roles, contract v15):
   Connections and its way in for `custody` and `connectivity`, every other
   for `custody`, whose pages read the custody role's accounts.
-- **The suites**: the connectivity suite, 23 cases passing and six not
-  presented with why (no calendar read, no locate, no place of execution,
-  nothing depending on whether releases wait for compliance); the custody
+- **The suites**: the connectivity suite, 20 of its 27 cases passing and
+  seven not presented with why (no calendar read, no locate nor a locate's
+  symbol, no place of execution, nothing depending on whether releases wait
+  for compliance); the custody
   suite's `asks-for-a-settlement-date` from the fill path, its
   `reads-a-calendar` not presented.
 - **The declaration**: SnapTrade's order record's `trailing_stop` and
   `child_brokerage_order_ids`, received and not carried.
+- **Account links' form is offered to agents as `link_account`** alone,
+  the route no longer kept from them by hand (meridian 0.1.42 holds the tool
+  replacing it to its check tool).
+- **A refusal is named by its type and code** in the log and on the pages,
+  never assumed: "refused" only where a component answered with one.
 
 ## 0.15.0 (not released)
 

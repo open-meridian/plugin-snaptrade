@@ -45,6 +45,7 @@ from .activities import Converted, PlanCodeLink, convert
 from .archive import Keeper, Tended
 from .contract import ActivityOutcome, Outcome, Recorder
 from .declaration import seen
+from .linking import failure
 from .normalise import (
     AccountView,
     ConnectionView,
@@ -235,6 +236,7 @@ class Syncer:
         if self.raw is not None:
             self.raw.responses_window = config.windows.responses.length
             self.raw.activity_window = config.windows.activity.length
+            self.raw.trading_window = config.windows.trading.length
 
     async def tend(self) -> Tended:
         """Each kind's units past its window archived, kept or deleted as
@@ -297,8 +299,8 @@ class Syncer:
         outcomes: dict[str, Outcome] = {}
         try:
             await self._recorder.report_accounts([view.account for view in accounts])
-        except meridian.MeridianError as refused:
-            log.warning("reporting the accounts it reaches was refused: %s", refused)
+        except meridian.MeridianError as failed:
+            log.warning("the accounts it reaches were not reported: %s", failure(failed))
         reported: dict[str, ActivityOutcome] = {}
         for view in accounts:
             external_id = view.account.external_account_id
@@ -306,8 +308,10 @@ class Syncer:
                 await self._recorder.report_sync(
                     view.account, view.freshness, observed, view.history_from
                 )
-            except meridian.MeridianError as refused:
-                log.warning("sync status for %s was refused: %s", external_id, refused)
+            except meridian.MeridianError as failed:
+                log.warning(
+                    "sync status for %s was not reported: %s", external_id, failure(failed)
+                )
             for problem in view.problems:
                 log.warning("%s: %s", external_id, problem)
             if view.statement is None:

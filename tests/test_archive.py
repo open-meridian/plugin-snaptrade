@@ -1,6 +1,6 @@
 """An edge plugin's older records move to the archive (contract v16;
 meridian-design spec/an-edge-plugins-older-records-move-to-the-archive):
-SnapTrade's two kinds declared, its 0.12.0 retention settings no longer
+SnapTrade's kinds declared, its 0.12.0 retention settings no longer
 declared (the admin sets the windows once at upgrade, option A of
 2026-10-07), each unit past its window archived, kept or deleted as the
 settings say -- recorded first, refused inside the hold, never twice after a
@@ -28,7 +28,16 @@ from snaptrade.archive import Keeper
 from snaptrade.declaration import DECLARATION, RESPONSES_KIND
 from snaptrade.linking import Links
 from snaptrade.page import RAW, RAW_ARCHIVE, RESTORE, hold, pages
-from snaptrade.raw import ACTIVITY_DIRECTORY, LEDGER, RESTORE_AREA, RawStore, storage_root
+from snaptrade.raw import (
+    ACTIVITY_DIRECTORY,
+    LEDGER,
+    PLACE,
+    RESTORE_AREA,
+    RawStore,
+    storage_root,
+    trading_call,
+    trading_taken,
+)
 from snaptrade.settings import (
     ACTIVITY_PAST,
     ACTIVITY_WINDOW,
@@ -38,6 +47,8 @@ from snaptrade.settings import (
     RESPONSES_PAST,
     RESPONSES_WINDOW,
     SYNTHETIC,
+    TRADING_PAST,
+    TRADING_WINDOW,
     Window,
     config_from,
 )
@@ -109,29 +120,40 @@ def responses_units(store: RawStore) -> list[str]:
     return [unit.unit for unit in store.units(RESPONSES_KIND.name)]
 
 
-# ── Its two kinds, and their windows ────────────────────────────────────────
+# ── Its kinds, and their windows ────────────────────────────────────────
 
 
-def test_its_two_kinds_are_declared_with_their_windows_and_archivable() -> None:
+def test_its_kinds_are_declared_with_their_windows_and_archivable() -> None:
     assert DECLARATION.storage is not None
     assert [
         (k.name, k.label, k.window_days, k.archivable) for k in DECLARATION.storage.kinds
     ] == [
         ("activity", "Reported activity", 2555, True),
         ("responses", "Raw responses", 30, True),
+        # Contract v22 (approved 2026-10-13): each trading exchange.
+        ("trading", "Trading", 2555, True),
     ]
     wire = DECLARATION.to_wire().storage
-    assert [k.name for k in wire.record_kinds] == ["activity", "responses"]
+    assert [k.name for k in wire.record_kinds] == ["activity", "responses", "trading"]
     # The storage asked for stays the longest a window may be.
     assert wire.retention_days == 36500
     # The window settings are the SDK's, from the kinds: never declared here.
     made = [s.name for s in DECLARATION._window_settings(archive=True)]
-    assert made == [ACTIVITY_WINDOW, ACTIVITY_PAST, RESPONSES_WINDOW, RESPONSES_PAST]
+    assert made == [
+        ACTIVITY_WINDOW,
+        ACTIVITY_PAST,
+        RESPONSES_WINDOW,
+        RESPONSES_PAST,
+        TRADING_WINDOW,
+        TRADING_PAST,
+    ]
     assert made == [
         "activity_window_days",
         "activity_past_window",
         "responses_window_days",
         "responses_past_window",
+        "trading_window_days",
+        "trading_past_window",
     ]
     assert not {s.name for s in DECLARED} & set(made)
 
@@ -191,6 +213,40 @@ def test_a_unit_past_its_window_is_archived_recorded_first_and_gone_from_storage
     # A move counts what it holds and when: the read, once.
     [first] = [m for m, _ in sidecar.moves if m.unit == unit.unit]
     assert first.record_count == 1 and first.first_received_ns == first.last_received_ns
+
+
+def test_a_trading_exchange_is_its_own_kind_kept_for_its_own_window(
+    storage: Path, archive: Path
+) -> None:
+    """Contract v22 (the kind `trading`, approved 2026-10-13): an exchange
+    with SnapTrade's trading API in its month, not the raw responses' day;
+    found by a fact's reference and listed among the account's reads; past
+    the trading window, and only that, moved as the setting says."""
+    store = RawStore(storage_root(storage), storage)
+    long_ago = NOW - timedelta(days=100)
+    key = store.keep_trading(
+        trading_taken(
+            ALPACA, "acct", long_ago, [trading_call(PLACE, {"status": "ACCEPTED"})], True
+        )
+    )
+    [unit] = store.units("trading")
+    assert unit.path.parent.name == "trading" and unit.path.name == f"{long_ago:%Y-%m}"
+    assert store.units("responses") == []
+    found = store.find(f"{ALPACA}/{key}/place")
+    assert found is not None and found[1]["body"] == {"status": "ACCEPTED"}
+    assert [read.key for read in store.reads(ALPACA)] == [key]
+    # Past the responses' window, inside the trading kind's seven years: kept.
+    sidecar = Sidecar()
+    read_at(sidecar, storage, NOW, {RESPONSES_PAST: "archived"}, archive=True)
+    assert [kind for kind, *_ in sidecar.outcomes()] == []
+    assert store.find(f"{ALPACA}/{key}/place") is not None
+    # Past a trading window of 30 days, archived.
+    read_at(sidecar, storage, NOW, {TRADING_WINDOW: 30, TRADING_PAST: "archived"}, archive=True)
+    assert [(kind, rule) for kind, _, _, rule in sidecar.outcomes()] == [
+        ("trading", "trading_window_days 30")
+    ]
+    assert store.find(f"{ALPACA}/{key}/place") is None
+    assert store.moved_read(ALPACA, key) is not None
 
 
 def test_a_restored_unit_is_read_back_and_its_restore_recorded_for_the_person(
@@ -291,7 +347,8 @@ def test_what_storage_holds_of_each_kind_goes_on_the_heartbeat(
     read_at(sidecar, storage, OLD, archive=True)
     store = read_at(sidecar, storage, NOW, archive=True).raw
     assert store is not None
-    activity, responses = sidecar.plugin().stored
+    activity, responses, trading = sidecar.plugin().stored
+    assert trading.record_kind == "trading" and trading.record_count == 0
     assert responses.record_kind == "responses" and responses.record_count == ACCOUNTS
     now_ns = int(NOW.timestamp()) * 10**9
     assert responses.first_received_ns == responses.last_received_ns == now_ns
@@ -300,7 +357,7 @@ def test_what_storage_holds_of_each_kind_goes_on_the_heartbeat(
     assert activity.first_received_ns == int(OLD.timestamp()) * 10**9
     beat = meridian.testing.heartbeat(healthy=True)
     beat.stored.extend(sidecar.plugin().stored)
-    assert [s.record_kind for s in beat.stored] == ["activity", "responses"]
+    assert [s.record_kind for s in beat.stored] == ["activity", "responses", "trading"]
 
 
 def test_the_heartbeat_reports_the_bytes_each_kind_uses_of_the_archive(
