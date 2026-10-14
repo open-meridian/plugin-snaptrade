@@ -51,7 +51,17 @@ from .page import TITLE, pages, serve
 from .raw import RawStore, storage_root
 from .settings import DECLARED, config_from
 from .sync import Syncer
-from .trading import POLL_SECONDS, SYNTHETIC_POLL_SECONDS, Sent, Trader, sent_file
+from .trading import (
+    POLL_SECONDS,
+    SYNTHETIC_POLL_SECONDS,
+    Charged,
+    Sent,
+    Trader,
+    Watched,
+    charged_file,
+    originated_file,
+    sent_file,
+)
 
 log = logging.getLogger("snaptrade")
 
@@ -169,6 +179,10 @@ async def run() -> None:
                     else ()
                 ),
                 sent=Sent(sent_file(syncer.raw)),
+                # Venue-originated orders and the charges reported, kept in
+                # storage so a restart reports neither twice (contract v23).
+                watched=Watched(originated_file(syncer.raw)),
+                charged=Charged(charged_file(syncer.raw)),
                 # The venue account codes its `ems` mapped on it, as the
                 # account scope delivers them (W11.22).
                 scope=lambda: links.scope,

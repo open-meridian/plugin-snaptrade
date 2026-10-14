@@ -20,11 +20,14 @@ from snaptrade import synthetic, synthetic_orders
 from snaptrade.trading import Sent, execution_id, fill_price, ticker_of
 from snaptrade.venue import VenueError
 from trading_cases import (
+    ACCEPTED,
     ALPACA_CODE,
     Rig,
+    accept,
     asking,
     decimal,
     instrument,
+    originated,
     placement,
     scope,
     usd,
@@ -329,7 +332,9 @@ def test_fills_after_a_replace_count_on_from_the_old_order() -> None:
 
     asyncio.run(produce())
     fills = [
-        (f.venue_execution_id, as_decimal(f.quantity)) for f in recorder.on("ReportExecution")
+        (f.venue_execution_id, as_decimal(f.quantity))
+        for f in recorder.on("ReportExecution")
+        if f.placement_id
     ]
     assert fills == [
         ("SYN-ORD-0001:4", Decimal(4)),
@@ -379,27 +384,225 @@ def test_an_unanswered_replace_is_never_sent_again_and_read_from_snaptrade(
     assert reported[1].venue_order_id == "SYN-ORD-0002"
 
 
-def test_an_order_placed_outside_the_platform_is_kept_and_never_recorded() -> None:
-    """SYN-OUT-0001 on the mapped Alpaca account: read, kept as SnapTrade
-    answered it, and left alone: no order recorded, no placement, no fill
-    (ruled 2026-10-13; venue-originated fills are v23's)."""
+# ── Venue-originated fills (contract v23) ───────────────────────────────
+
+
+def _on_no_placement(recorder: Recorder) -> list[Any]:
+    return [e for e in recorder.on("ReportExecution") if not e.placement_id]
+
+
+def test_an_order_placed_in_the_brokers_app_has_its_fills_reported_on_no_placement() -> None:
+    """SYN-OUT-0001 on the mapped Alpaca account: nothing while it has no
+    fill; then each fill on no placement, naming the instrument its symbol
+    resolves to, the side and the venue order, derived to its ID, with the
+    date read's settlement date; no order recorded and no placement made
+    (rulings 1, 8 and 9)."""
     recorder = Recorder("snaptrade")
     rig = Rig(recorder)
 
     async def produce() -> None:
         await rig.trader.start()
         await rig.trader.poll()
+        assert recorder.on("ReportExecution") == [], "a venue order with no fill"
+        assert rig.trader.watched.orders == {}, "nor is it kept"
+        await rig.trader.poll()
         await rig.trader.poll()
 
     asyncio.run(produce())
-    for row in ("RecordOrder", "CreatePlacement", "ReportExecution", "ReportPlacement"):
+    for row in ("RecordOrder", "CreatePlacement", "ReportPlacement"):
         assert recorder.on(row) == [], row
-    (read,) = rig.raw.reads(ALPACA_CODE)
-    record = rig.raw.record(ALPACA_CODE, read.key)
-    assert record is not None
-    (call,) = record.calls
-    assert [o["brokerage_order_id"] for o in call["body"]] == [synthetic_orders.OUTSIDE_ID]
-    assert rig.trader.outside == {synthetic_orders.OUTSIDE_ID}
+    fills = _on_no_placement(recorder)
+    assert [(f.venue_execution_id, as_decimal(f.quantity)) for f in fills] == [
+        ("SYN-OUT-0001:1", Decimal(1)),
+        ("SYN-OUT-0001:3", Decimal(2)),
+    ]
+    first = fills[0]
+    assert first.venue_account_code == ALPACA_CODE
+    assert first.venue_order_id == synthetic_orders.OUTSIDE_ID
+    assert first.venue_client_order_id == ""
+    assert first.side == ops.SIDE_BUY and first.instrument_id
+    assert (as_decimal(first.price.amount), first.price.currency_code) == (
+        Decimal("226.10"),
+        "USD",
+    )
+    assert first.computed_settlement_date and first.raw_record.key
+    (resolved, *_) = recorder.on("ResolveIdentifier")
+    assert [(i.scheme, i.value, i.source) for i in resolved.identifiers] == [
+        ("symbol", "AAPL", "snaptrade")
+    ]
+
+
+def test_what_an_order_had_filled_before_the_first_read_is_never_reported() -> None:
+    """The account's history, which its custodial statement holds: only
+    what fills after the plugin first read the account's orders."""
+    recorder = Recorder("snaptrade")
+    rig = Rig(recorder)
+
+    async def produce() -> None:
+        # Listed before the plugin read the account, which first finds 1
+        # filled.
+        rig.trading.orders(synthetic.ALPACA_MARGIN, "2026-09-27T15:00:00.000Z")
+        await rig.trader.start()
+        await rig.trader.poll()
+        assert recorder.on("ReportExecution") == []
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    (fill,) = _on_no_placement(recorder)
+    assert (fill.venue_execution_id, as_decimal(fill.quantity)) == (
+        "SYN-OUT-0001:3",
+        Decimal(2),
+    )
+
+
+def test_after_an_accept_later_fills_and_charges_go_on_the_accepts_placement(
+    tmp_path: Path,
+) -> None:
+    """The first fill accepted to a new order: the book's placement at
+    filled names the venue order; the order's later fill is reported on it,
+    and so is the commission SnapTrade states on each fill, the first one
+    again (ruling 17). A restart works the placement as before."""
+    recorder = Recorder("snaptrade")
+
+    async def produce() -> None:
+        rig = await originated(recorder, Rig(recorder, watched=tmp_path))
+        await accept(rig)
+        rig.trader = rig.make()
+        await rig.trader.start()
+        assert ACCEPTED in rig.trader.working, "adopted again from storage"
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    fills = [(e.placement_id, e.venue_execution_id) for e in recorder.on("ReportExecution")]
+    assert fills == [("", "SYN-OUT-0001:1"), (ACCEPTED, "SYN-OUT-0001:3")]
+    charges = [
+        (c.placement_id, c.fee.kind, as_decimal(c.fee.amount.amount))
+        for c in recorder.on("ReportCharge")
+    ]
+    assert charges == [
+        ("", ops.FEE_KIND_COMMISSION, Decimal("1.00")),
+        (ACCEPTED, ops.FEE_KIND_COMMISSION, Decimal("1.00")),
+        (ACCEPTED, ops.FEE_KIND_COMMISSION, Decimal("1.00")),
+    ]
+    assert recorder.on("ReportPlacement") == [], "the accept's placement takes no status"
+
+
+def test_after_a_dk_a_later_fill_is_reported_on_no_placement_again() -> None:
+    """The first fill answered DK: SnapTrade is told nothing, and the
+    order's next fill arrives unmatched, answered on its own (ruling 18)."""
+    recorder = Recorder("snaptrade")
+
+    async def produce() -> None:
+        rig = await originated(recorder)
+        dk = ops.Execution(
+            execution_id="EXE-1",
+            venue_order_id=synthetic_orders.OUTSIDE_ID,
+            state=ops.EXECUTION_STATE_DONT_KNOW,
+            dk_reason=ops.DK_REASON_NO_MATCHING_ORDER,
+        )
+        recorder.answer("ExecutionRecorded", lambda _: ops.ExecutionRecordedEvent(execution=dk))
+        await recorder.receive(execution_recorded=rig.trader.on_execution)
+        await rig.trader.poll()
+        assert not rig.trader.watched.orders[synthetic_orders.OUTSIDE_ID].adopted
+
+    asyncio.run(produce())
+    assert [e.venue_execution_id for e in _on_no_placement(recorder)] == [
+        "SYN-OUT-0001:1",
+        "SYN-OUT-0001:3",
+    ]
+    for row in ("ReportPlacement", "RequestPlacementChange"):
+        assert recorder.on(row) == [], row
+
+
+def test_a_restart_reports_no_fill_on_no_placement_twice(tmp_path: Path) -> None:
+    recorder = Recorder("snaptrade")
+
+    async def produce() -> None:
+        rig = await originated(recorder, Rig(recorder, watched=tmp_path))
+        rig.trader = rig.make()
+        await rig.trader.start()
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    assert [e.venue_execution_id for e in _on_no_placement(recorder)] == [
+        "SYN-OUT-0001:1",
+        "SYN-OUT-0001:3",
+    ]
+    assert len(recorder.on("ReportCharge")) == 2, "each fill's commission once"
+
+
+def test_a_fill_on_no_placement_taken_back_is_busted_on_no_placement() -> None:
+    """SnapTrade's filled quantity falls: the fill reported beyond it is
+    busted, closed with nothing to answer (ruling 18)."""
+    recorder = Recorder("snaptrade")
+
+    async def produce() -> None:
+        rig = await originated(recorder)
+        (record,) = [
+            o
+            for o in rig.trading._held["orders"][synthetic.ALPACA_MARGIN]
+            if o["brokerage_order_id"] == synthetic_orders.OUTSIDE_ID
+        ]
+        record.update(status="CANCELED", filled_quantity="0", canceled_quantity="3")
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    fill, bust = _on_no_placement(recorder)
+    assert bust.supersedes == "EXE-1" and as_decimal(bust.quantity) == 0
+    assert bust.venue_execution_id == "SYN-OUT-0001:1:busted"
+    assert bust.venue_order_id == fill.venue_order_id and bust.instrument_id
+
+
+def test_a_symbol_naming_no_record_is_reported_missing_and_the_fill_waits() -> None:
+    recorder = Recorder("snaptrade")
+    recorder.answer(
+        "ResolveIdentifier",
+        lambda _: ops.ResolveIdentifierResult(
+            found=False, miss_reason=ops.MISS_REASON_NOT_FOUND
+        ),
+    )
+
+    async def produce() -> None:
+        rig = await originated(recorder)
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    assert _on_no_placement(recorder) == []
+    (missing,) = recorder.on("ReportMissingInstrument")
+    assert missing.reason == ops.MISS_REASON_NOT_FOUND
+
+
+def test_the_catalogue_says_snaptrade_takes_no_execution_acknowledgement() -> None:
+    recorder = Recorder("snaptrade")
+    rig = Rig(recorder)
+    asyncio.run(rig.trader.start())
+    catalogues = [c.catalogue for c in recorder.on("ReportVenueCatalogue")]
+    assert catalogues and all(
+        c.execution_acknowledgement == ops.EXECUTION_ACKNOWLEDGEMENT_NONE for c in catalogues
+    )
+
+
+def test_the_commission_snaptrade_states_on_a_placements_fill_is_a_charge_on_it() -> None:
+    """The `fee` of the `BUY` activity naming a placement's order, once the
+    placement ended: a commission charge on it, reported once."""
+    recorder = Recorder("snaptrade")
+
+    async def produce() -> None:
+        rig = Rig(recorder, mapped=())
+        held = placement(quantity="1")
+        rig.holds(held)
+        await rig.hear(held)
+        await rig.trader.poll()
+        for activity in rig.trading._held["activities"][synthetic.ALPACA_MARGIN]:
+            activity["fee"] = "0.35"
+        await rig.trader.poll()
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    (charge,) = recorder.on("ReportCharge")
+    assert charge.placement_id == placement().placement_id
+    assert charge.fee.kind == ops.FEE_KIND_COMMISSION
+    assert as_decimal(charge.fee.amount.amount) == Decimal("0.35")
 
 
 def test_the_accounts_read_are_the_ones_the_account_scope_maps() -> None:

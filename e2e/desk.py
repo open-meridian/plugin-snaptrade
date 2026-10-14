@@ -16,6 +16,10 @@ else, and the orders go to SnapTrade's synthetic brokerage.
   /map?account=&code=                     MapVenueAccount on SnapTrade (ems's admin)
   /orders?account=                        ListOrders, a line each
   /resolve?figi=&symbol=                  ResolveIdentifier: the record custody's read named
+  /executions?account=&state=             ListOrders' executions in one state (contract v23):
+                                          unmatched, matched or dont_know
+  /accept?executions=a,b                  AcceptExecution to a new order (contract v23, ems)
+  /dk?executions=a,b                      DontKnowExecution, no matching order (contract v23, ems)
 """
 
 import asyncio
@@ -34,6 +38,11 @@ PORT = 8000
 LOOP = asyncio.new_event_loop()
 CONNECTIVITY = "snaptrade"
 LIMIT = meridian.Money(Decimal("230.00"), "USD")
+STATES = {
+    "unmatched": ops.EXECUTION_STATE_UNMATCHED,
+    "matched": ops.EXECUTION_STATE_MATCHED,
+    "dont_know": ops.EXECUTION_STATE_DONT_KNOW,
+}
 TIMES = {
     "day": ops.TIME_IN_FORCE_DAY,
     "gtc": ops.TIME_IN_FORCE_GOOD_TILL_CANCELLED,
@@ -187,6 +196,46 @@ class Desk:
         if path == "/orders":
             listed = await self.call("list_orders", account_id=one(query, "account"), page_size=500)
             return {"orders": [order_json(o) for o in listed.orders]}
+        if path == "/executions":
+            state = STATES[one(query, "state", "unmatched")]
+            listed = await self.call(
+                "list_orders",
+                account_id=one(query, "account"),
+                execution_state=state,
+                page_size=500,
+            )
+            return {
+                "executions": [
+                    {
+                        "execution_id": e.execution_id,
+                        "placement_id": e.placement_id,
+                        "venue_order_id": e.venue_order_id,
+                        "quantity": str(as_decimal(e.quantity)),
+                        "price": str(as_decimal(e.price.amount)),
+                        "state": ops.ExecutionState.Name(e.state),
+                        "dk_reason": ops.DkReason.Name(e.dk_reason),
+                    }
+                    for e in listed.executions
+                    if e.state == state and not e.supersedes
+                ]
+            }
+        if path == "/accept":
+            done = await self.call(
+                "accept_execution",
+                execution_ids=one(query, "executions").split(","),
+                new_order=ops.NewOrderFromExecutions(note="Placed in the broker's own app"),
+                note="Ours: the account holder's order at the broker",
+                acting_for=caller,
+            )
+            return {"order_id": done.order.order_id, "placement_id": done.placement.placement_id}
+        if path == "/dk":
+            done = await self.call(
+                "dont_know_execution",
+                execution_ids=one(query, "executions").split(","),
+                reason=ops.DK_REASON_NO_MATCHING_ORDER,
+                acting_for=caller,
+            )
+            return {"answered": [e.execution_id for e in done.executions]}
         return {"page": "the desk"}
 
 

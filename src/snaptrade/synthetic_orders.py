@@ -51,11 +51,14 @@ states it: a `BUY` or `SELL` of the units filled, at the order's price, its
 the simulated brokerage states, the next weekday after the trade date (as
 meridian-core's simulated venue states one).
 
-One order the brokerage took outside the platform is on the Alpaca margin
-account from the start (`SYN-OUT-0001`, AAPL, bought and executed), with its
-fill in the account's activity: the order a test and the e2e show the plugin
-reads and leaves alone, recording no order and reporting no fill
-(venue-originated fills are v23's).
+One order placed in the broker's own app is on the Alpaca margin account
+from the first time its orders are read (`SYN-OUT-0001`, a buy of 3 AAPL at
+a limit of 226.10, no client order ID): `ACCEPTED` with nothing filled on
+that read, then filled as any order is, 1 on the next read and the other 2
+on the one after, each fill an activity of the account whose `fee` is the
+brokerage's commission, 1.00. It is the order a test and the e2e show the
+plugin reporting fills of on no placement (contract v23): one the stand-in
+desk answers DK, the other it accepts to a new order.
 """
 
 from __future__ import annotations
@@ -65,7 +68,7 @@ import os
 import tempfile
 import zlib
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 from typing import Any
@@ -102,29 +105,37 @@ OFFERED_ELSEWHERE = (
     ("Day", "GTC", "IOC", "FOK", "GTD"),
 )
 
-#: The order the brokerage took outside the platform (above).
+#: The order placed in the broker's own app (above), and the commission the
+#: brokerage states on each of its fills.
 OUTSIDE_ID = "SYN-OUT-0001"
+OUTSIDE_COMMISSION = "1.00"
+
+#: A record's mark that it was made by the read answering it, which takes it
+#: no step on: never kept, nor answered.
+_FRESH = "fresh"
 
 
 def _outside(account_id: str, placed: str) -> Json:
     return {
         "brokerage_order_id": OUTSIDE_ID,
-        "status": "EXECUTED",
+        "client_order_id": None,
+        "status": "ACCEPTED",
         "universal_symbol": _symbol("AAPL"),
         "action": "BUY",
         "total_quantity": "3",
-        "open_quantity": "0",
+        "open_quantity": "3",
         "canceled_quantity": "0",
-        "filled_quantity": "3",
-        "execution_price": "226.10",
-        "limit_price": None,
+        "filled_quantity": "0",
+        "execution_price": None,
+        "limit_price": "226.10",
         "stop_price": None,
-        "order_type": "Market",
+        "order_type": "Limit",
         "time_in_force": "Day",
         "time_placed": placed,
         "time_updated": placed,
-        "time_executed": placed,
+        "time_executed": None,
         "account": account_id,
+        _FRESH: True,
     }
 
 
@@ -198,27 +209,8 @@ class SyntheticTrading:
     def _orders(self, account_id: str, first: str = "") -> list[Json]:
         orders: dict[str, list[Json]] = self._held["orders"]
         if account_id not in orders and first:
-            outside = _outside(account_id, first)
-            orders[account_id] = [outside]
-            # Its fill, as the account's activity states it.
-            placed = date.fromisoformat(first[:10])
-            settles = placed + timedelta(days=1)
-            while settles.weekday() >= 5:
-                settles += timedelta(days=1)
-            self._held["activities"].setdefault(account_id, []).append(
-                {
-                    "id": "00000000-0000-4000-8000-e00000000000",
-                    "type": "BUY",
-                    "symbol": {"symbol": "AAPL"},
-                    "units": "3",
-                    "price": "226.10",
-                    "amount": "-678.30",
-                    "currency": {"code": "USD"},
-                    "trade_date": f"{placed.isoformat()}T00:00:00.000Z",
-                    "settlement_date": f"{settles.isoformat()}T00:00:00.000Z",
-                    "external_reference_id": OUTSIDE_ID,
-                }
-            )
+            # Unfilled on the read that first lists it (above).
+            orders[account_id] = [_outside(account_id, first)]
         return orders.setdefault(account_id, [])
 
     def place(self, account_id: str, asked: OrderAsked, outside_at: str) -> Json:
@@ -266,7 +258,8 @@ class SyntheticTrading:
         """Each order, every read taking each one step on (above)."""
         held = self._orders(account_id, outside_at)
         for record in held:
-            self._step(account_id, record)
+            if not record.pop(_FRESH, False):
+                self._step(account_id, record)
         self._save()
         return [parse_exact(json.dumps(record)) for record in held]
 
@@ -367,20 +360,22 @@ class SyntheticTrading:
         price = Decimal(record["execution_price"])
         sign = -1 if record["action"] == "BUY" else 1
         number = len(self._held["activities"].get(account_id, [])) + 1
-        self._held["activities"].setdefault(account_id, []).append(
-            {
-                "id": f"00000000-0000-4000-8000-e{number:011d}",
-                "type": record["action"],
-                "symbol": {"symbol": record["universal_symbol"]["symbol"]},
-                "units": str(units),
-                "price": str(price),
-                "amount": str(sign * units * price),
-                "currency": {"code": "USD"},
-                "trade_date": f"{today.isoformat()}T00:00:00.000Z",
-                "settlement_date": f"{settles.isoformat()}T00:00:00.000Z",
-                "external_reference_id": record["brokerage_order_id"],
-            }
-        )
+        activity: Json = {
+            "id": f"00000000-0000-4000-8000-e{number:011d}",
+            "type": record["action"],
+            "symbol": {"symbol": record["universal_symbol"]["symbol"]},
+            "units": str(units),
+            "price": str(price),
+            "amount": str(sign * units * price),
+            "currency": {"code": "USD"},
+            "trade_date": f"{today.isoformat()}T00:00:00.000Z",
+            "settlement_date": f"{settles.isoformat()}T00:00:00.000Z",
+            "external_reference_id": record["brokerage_order_id"],
+        }
+        if record["brokerage_order_id"] == OUTSIDE_ID:
+            # The brokerage's commission on a trade placed in its own app.
+            activity["fee"] = OUTSIDE_COMMISSION
+        self._held["activities"].setdefault(account_id, []).append(activity)
 
     def _step(self, account_id: str, record: Json) -> None:
         before = Decimal(record["filled_quantity"])

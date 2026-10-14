@@ -80,9 +80,13 @@ The rules, each from the spec or the broker survey (reference/broker-apis.md):
   option is derivative, crypto is crypto_asset; any other kind is left unset
   for a person to set on the platform. Cash is no instrument SnapTrade
   reports, and has none.
-- **A currency where the venue gives none** is the account's only cash
-  currency, or US dollars, derived by that rule and said by its provenance;
-  a resolve is narrowed only by a currency SnapTrade stated.
+- **A currency where the venue gives none** (for the position and its
+  listing) is the linked account's currency a person set in the plugin's
+  `account_currency` setting (contract v23), supplied by them, or else the
+  account's only cash currency, or US dollars, derived by that rule: each
+  said by its provenance. A resolve is narrowed only by a currency SnapTrade
+  stated; a supplied or derived one is offered on it with its provenance
+  (contract v23), never as SnapTrade's.
 - **Numbers are Decimal.** A float reaching here becomes Decimal(repr(value)).
 - **The statement ID is made from the account and the read time.**
 - **Sync state and freshness** from the connection and the account's sync
@@ -115,7 +119,7 @@ The rules, each from the spec or the broker survey (reference/broker-apis.md):
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
@@ -123,6 +127,7 @@ from enum import Enum
 from typing import Any
 
 import meridian
+from meridian import edge
 from meridian.bounds import PROVENANCE_RULE_LENGTH
 
 from .counted_as_cash import CountedAsCash, row_for
@@ -435,9 +440,13 @@ class Holding:
     quantity: Decimal
     # The currency the row is in: the position's currency, or the cash's.
     currency: str
-    # True when SnapTrade stated no currency for the position and the one
-    # above is this plugin's stated assumption.
+    # True when SnapTrade stated no currency for the position, and the one
+    # above was supplied by a person (`currency_supplied_by`) or derived by
+    # the rule: never sent as SnapTrade's.
     currency_assumed: bool = False
+    # Who set the account's currency, and when, where a person supplied it
+    # (the `account_currency` setting, contract v23); "" for the rule's.
+    currency_supplied_by: str = ""
     settle_date_quantity: Decimal | None = None
     # None is "not reported", never zero.
     market_value: meridian.Money | None = None
@@ -818,11 +827,17 @@ def asset_class(kind: str) -> str:
 
 
 def position_holding(
-    position: Json, fallback_currency: str, problems: list[str] | None = None
+    position: Json,
+    fallback_currency: str,
+    problems: list[str] | None = None,
+    supplied: tuple[str, str] | None = None,
 ) -> Holding:
     """One position from `positions/all`, as a row. A part of it that cannot
     be read exactly, its average cost or its lots, is left out and said in
-    `problems`; the row stands without it."""
+    `problems`; the row stands without it. Where SnapTrade states no currency
+    for the position or its listing, it is `supplied`'s (the account's
+    currency and who set it, contract v23) where a person set one, and
+    `fallback_currency`, by the rule, otherwise."""
     said = problems if problems is not None else []
     instrument = _dict(position.get("instrument"))
     kind = _text(instrument.get("kind"))
@@ -842,7 +857,7 @@ def position_holding(
     exchange = _text(instrument.get("exchange")).upper()
     stated = _currency(position.get("currency"))
     listed = _currency(instrument.get("currency"))
-    currency = stated or listed or fallback_currency
+    currency = stated or listed or (supplied[0] if supplied else fallback_currency)
     side = _side(quantity)
     average_cost: meridian.Money | None = None
     if position.get("cost_basis") is not None:
@@ -865,16 +880,23 @@ def position_holding(
         except ValueError:
             price = None
     assumed = not stated and not listed
+    person = supplied[1] if assumed and supplied else ""
     closed: list[Closed] = []
     if assumed:
         # A currency SnapTrade stated neither for the position nor its listing:
-        # every amount the row carries is in it, derived by the rule.
-        if average_cost is not None:
-            closed.append(Closed("average_cost.currency_code", "derived", RULE_CURRENCY))
-        closed.extend(
-            Closed(f"lots[{i}].cost.currency_code", "derived", RULE_CURRENCY)
+        # every amount the row carries is in it, supplied by the person who set
+        # the account's currency, or derived by the rule.
+        paths = ["average_cost.currency_code"] if average_cost is not None else []
+        paths += [
+            f"lots[{i}].cost.currency_code"
             for i, lot in enumerate(lots)
             if lot.cost is not None
+        ]
+        closed.extend(
+            Closed(path, "supplied", person=person)
+            if person
+            else Closed(path, "derived", RULE_CURRENCY)
+            for path in paths
         )
     return Holding(
         identifiers=tuple(identifiers),
@@ -884,6 +906,7 @@ def position_holding(
         quantity=quantity,
         currency=currency,
         currency_assumed=assumed,
+        currency_supplied_by=person,
         # SnapTrade reports no market value, and one is never made from `price`.
         market_value=None,
         exchange_mic=exchange if _MIC.match(exchange) else "",
@@ -1022,12 +1045,14 @@ def statement(
     total: Any = None,
     activities: list[Json] | None = None,
     counted_as_cash: Sequence[CountedAsCash] = (),
+    account_currency: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[Statement, tuple[str, ...]]:
     """The statement for one account, and what could not be put in it.
     `total` is the account's `balance.total` as SnapTrade listed it;
     `activities` its trades, None where they could not be read;
-    `counted_as_cash` the positions people listed as cash. Raises
-    `Withheld` for a statement this plugin cannot serve clean."""
+    `counted_as_cash` the positions people listed as cash; `account_currency`
+    the accounts' currencies people set (contract v23). Raises `Withheld`
+    for a statement this plugin cannot serve clean."""
     problems: list[str] = []
     cash: list[Holding] = []
     buying_power: list[meridian.Money] = []
@@ -1043,14 +1068,19 @@ def statement(
         except ValueError as refused:
             problems.append(str(refused))
     # A position whose currency SnapTrade states neither for the position nor
-    # for its listing is taken to be in the account's only cash currency, or
-    # in US dollars when the account has several or none: derived by that
-    # rule, and said so, never passed off as SnapTrade's.
+    # for its listing is in the account's currency a person set (contract
+    # v23), supplied by them; else taken to be in the account's only cash
+    # currency, or in US dollars when the account has several or none,
+    # derived by that rule. Either is said so, never passed off as SnapTrade's.
     fallback = cash[0].currency if len({row.currency for row in cash}) == 1 else "USD"
+    given = edge.supplied_currency(
+        account_currency, account.external_account_id, "average_cost.currency_code"
+    )
+    supplied = (given[0], given[1].person) if given is not None else None
     rows: list[Holding] = []
     for position in positions.get("results") or []:
         try:
-            rows.append(position_holding(_dict(position), fallback, problems))
+            rows.append(position_holding(_dict(position), fallback, problems, supplied))
         except ValueError as refused:
             problems.append(str(refused))
     holdings, merging = _merged(rows + cash)
@@ -1389,9 +1419,11 @@ def views(
     snapshot: Snapshot,
     stale_after: timedelta,
     counted_as_cash: Sequence[CountedAsCash] = (),
+    account_currency: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[ConnectionView, ...]:
     """Every connection, with its accounts, as this read saw them, with the
-    positions people listed as cash counted so."""
+    positions people listed as cash counted so, and the accounts' currencies
+    people set (contract v23) given where SnapTrade states none."""
     by_connection: dict[str, list[AccountView]] = {}
     connections = {_text(c.get("id")): c for c in snapshot.connections}
     for raw in snapshot.accounts:
@@ -1421,6 +1453,7 @@ def views(
                     _dict(raw.get("balance")).get("total"),
                     snapshot.activities.get(account.snaptrade_account_id),
                     counted_as_cash,
+                    account_currency,
                 )
             except Withheld as unclean:
                 # A statement it cannot serve clean is withheld, and said why

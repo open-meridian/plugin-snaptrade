@@ -586,6 +586,9 @@ KNOWN_PARAMETERS = {
         "stated_currency",
         "stated_description",
         "stated_instrument_type",
+        # v23: where SnapTrade states no currency, the one supplied or
+        # derived, offered with its provenance.
+        "provenance",
     },
     "report_missing_instrument": {
         "source",
@@ -649,9 +652,11 @@ KNOWN_PARAMETERS = {
         "observations_wanted",
         "want_withdrawn",
         # v22 (connectivity; trading.py): the placements naming this instance
-        # and the trading instructions, heard. Known, and not heard: the
-        # order, execution, unplaced fact and locate deliveries go to the
-        # roles that read the book, and a catalogue to the ems and oms.
+        # and the trading instructions, heard; and from v23 the executions it
+        # reported, as the book recorded them, so it hears a fill on no
+        # placement accepted or answered DK. Known, and not heard: the order,
+        # unplaced fact and locate deliveries go to the roles that read the
+        # book, and a catalogue to the ems and oms.
         "placement_updated",
         "trading_instruction_changed",
         "order_updated",
@@ -660,6 +665,8 @@ KNOWN_PARAMETERS = {
         "locate_updated",
         "report_venue_catalogue",
         "subjects",
+        # Known, and not heard (v23): a market's outcomes go to the readers.
+        "outcomes_recorded",
     },
     # Known, and not used (v8): the book of record is an operations plugin's
     # to write and five other roles' to read (operations, portfolio,
@@ -861,6 +868,13 @@ KNOWN_PARAMETERS = {
         "venue_account_code",
         "venue_execution_id",
         "venue_id",
+        # Used (v23): a fill on no placement names its instrument, side, the
+        # venue's order and its client order ID where SnapTrade states one;
+        # a fill on a placement names the venue order too.
+        "instrument_id",
+        "side",
+        "venue_order_id",
+        "venue_client_order_id",
     },
     "report_charge": {
         "acting_for",
@@ -878,7 +892,9 @@ KNOWN_PARAMETERS = {
         "placement_id",
         "reason",
     },
-    "list_orders": {"account_id", "cursor", "page_size", "since"},
+    # v23's `execution_state` known, and not used: the unmatched listing is
+    # the ems's and operations' read; this plugin hears its fills' answers.
+    "list_orders": {"account_id", "cursor", "page_size", "execution_state", "since"},
     "list_trading_instructions": {"cursor", "page_size", "since"},
     "report_venue_catalogue": {"catalogue"},
     "compute_date": {"as_of_ns", "business_day", "roll", "settlement", "spot", "tenor"},
@@ -967,6 +983,8 @@ KNOWN_PARAMETERS = {
         "parties",
         "quantity",
         "quote_at_receipt",
+        # v23: an FX order's quote currency, portfolio's to propose.
+        "quote_currency",
         "received_at_ns",
         "received_precision",
         "relieve_lot_ids",
@@ -998,6 +1016,26 @@ KNOWN_PARAMETERS = {
         "verdict",
     },
     "acknowledge_flag": {"acting_for", "condition", "idempotency_key", "order_id", "reason"},
+    # Known, and not used (v23): the accept and the DK are the ems's acts,
+    # which this plugin only hears answered (ExecutionRecorded); a value-date
+    # roll is a rolling venue's, and SnapTrade's trades settle; a market's
+    # outcome is a data plugin's to record and the readers' to list.
+    "accept_execution": {"acting_for", "execution_ids", "new_order", "note", "order_id"},
+    "dont_know_execution": {"acting_for", "execution_ids", "reason", "text"},
+    "report_value_date_roll": {
+        "acting_for",
+        "charge_ids",
+        "from_value_date",
+        "idempotency_key",
+        "pair",
+        "raw_record",
+        "rolled_at_ns",
+        "to_value_date",
+        "value_date_basis",
+        "venue_account_code",
+    },
+    "record_outcomes": {"acting_for", "outcomes"},
+    "list_outcomes": {"after_watermark", "as_of_ns", "subjects"},
 }
 
 

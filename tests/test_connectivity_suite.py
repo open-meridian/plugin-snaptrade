@@ -1,4 +1,4 @@
-"""The connectivity suite (contract v22): every case SnapTrade presents, from
+"""The connectivity suite (contract v23): every case SnapTrade presents, from
 its own trading code and its synthetic brokerage.
 
 Each case is mapped to what SnapTrade's trading API answers for it, through
@@ -7,13 +7,18 @@ quantity that works or fills), and run through this plugin's own Trader
 (trading.py) against the runner's recorder, as a placement heard is. Only
 the sidecar is stood in for. SIMULATED ONLY: nothing reaches SnapTrade.
 
-Seven cases are not presented, each with why (`NOT_PRESENTED`), as the
+Eight cases are not presented, each with why (`NOT_PRESENTED`), as the
 suite lets a case marked `about` or `about_field` be: SnapTrade reads no
 calendar's days (it asks the date read for each fill's settlement date),
 offers no locate (so resolves no locate's symbol), states no fill's place of
-execution, and places what its `ems` released whatever releases wait for.
-Contract v22 has no venue-originated order (ruled 2026-10-13), and the
-suite no case for one.
+execution, places what its `ems` released whatever releases wait for, and
+from contract v23 rolls nothing (its trades settle). Every other case
+passes: among them v23's venue-originated fills -- an order placed in the
+broker's own app (SYN-OUT-0001), its fills reported on no placement, a later
+one on the placement an accept created, and the commission SnapTrade states
+on it re-reported there -- and the `about` cases SnapTrade does present: a
+bust, derived from a later read showing less filled, and a charge with no
+fill, a cancel's `FEE` activity naming the order.
 """
 
 from __future__ import annotations
@@ -28,6 +33,9 @@ from trading_cases import (
     IBKR_CODE,
     Producer,
     Rig,
+    accept,
+    accepted_then_filled,
+    originated,
     placed_and_filled,
     placement,
 )
@@ -52,6 +60,10 @@ NOT_PRESENTED = {
     "hears-an-accounts-attributes-change": (
         "it places what its ems released; whether releases wait for compliance changes "
         "nothing it sends"
+    ),
+    "reports-a-value-date-roll": (
+        "SnapTrade's brokerages settle each trade on its settlement date: none rolls a "
+        "spot position's value date at a daily cut"
     ),
 }
 
@@ -153,6 +165,17 @@ async def renamed(recorder: Recorder) -> None:
     await rig.trader.poll()
 
 
+async def fill_on_no_placement(recorder: Recorder) -> None:
+    await originated(recorder)
+
+
+async def charge_re_reported(recorder: Recorder) -> None:
+    """The commission SnapTrade states on the fill of SYN-OUT-0001, kept
+    unplaced, then reported again on the placement the accept created."""
+    rig = await originated(recorder)
+    await accept(rig)
+
+
 async def paused(recorder: Recorder) -> None:
     rig = Rig(recorder)
     await rig.instruct(ops.TRADING_INSTRUCTION_VALUE_PAUSE)
@@ -201,6 +224,10 @@ PRODUCERS: dict[str, Producer] = {
     "catches-up-placements-after-a-loss": caught_up,
     "reads-the-instructions-in-force-on-start": started,
     "reports-a-symbol-it-cannot-resolve": renamed,
+    # Contract v23: venue-originated fills.
+    "reports-a-fill-on-no-placement": fill_on_no_placement,
+    "reports-a-later-fill-on-the-accepted-placement": accepted_then_filled,
+    "re-reports-a-charge-on-the-accepted-placement": charge_re_reported,
 }
 
 
@@ -216,8 +243,9 @@ def test_the_connectivity_suite_passes() -> None:
         "connectivity", PRODUCERS, not_presented=NOT_PRESENTED, instance_id="snaptrade"
     )
     assert report.passed, report.failures
-    assert len(report.passed_cases) == 20
-    assert sorted(report.not_presented) == sorted(NOT_PRESENTED)
+    assert report.not_presented == NOT_PRESENTED
+    assert set(report.passed_cases) == set(PRODUCERS)
+    assert len(report.passed_cases) == 23
 
 
 def test_a_plugin_sending_on_a_pause_fails_the_suite() -> None:

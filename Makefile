@@ -38,8 +38,10 @@ CLI_CONTEXT := $(if $(MERIDIAN_BIN),--build-context cli=$(MERIDIAN_BIN),)
 # chooses, and with the SDK when a contract version changes. `make e2e
 # RUNTIME_IMAGE=...:latest HARNESS_IMAGE=...:latest` tries a newer core;
 # e2e-latest.yaml does that weekly.
-# Core 8f03d84, contract v22, by tag for now: its digest, and the core
-# commit v22 is released at, at push time.
+# Core 8774368, contract v22, as published. Contract v23's runtime and
+# harness are not published yet: until they are, `make ci-local
+# RUNTIME_IMAGE=... HARNESS_IMAGE=...` runs against core v23 built locally,
+# and these move to its published tag and digest in a deliberate commit.
 RUNTIME_IMAGE ?= ghcr.io/open-meridian/meridian-runtime:8774368@sha256:30bc55de3702ffa76b5a8e7c36cb0fe65aa819dd1b7d167cecdd5fe59540c5db
 HARNESS_IMAGE ?= ghcr.io/open-meridian/meridian-harness:8774368@sha256:c1db335cecdc42c3eed10e916e8c600483b73eef5830e100c35411653196a5ac
 # Its roles as pyproject.toml declares them (a JSON list's items), so the
@@ -210,7 +212,10 @@ image:
 # Then the order path (contract v22, e2e/orders.py), with the desk
 # (e2e/desk.py, portfolio, oms and ems): trading enabled on Alpaca's
 # connection, a buy of 10 placed, acknowledged and filled in two with the date
-# read's settlement date; good till date rejected unsupported; a cancel; a
+# read's settlement date; from contract v23 the fills of the order placed in
+# the broker's own app (SYN-OUT-0001) reported on no placement, one answered
+# DK and the other accepted to a new order; good till date rejected
+# unsupported; a cancel; a
 # pause and a stop honoured; a restart sending no second order. SIMULATED
 # ONLY: SnapTrade's synthetic brokerage, never SnapTrade.
 # Its own project and no published port; nothing outlives it.

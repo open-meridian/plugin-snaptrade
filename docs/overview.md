@@ -22,8 +22,11 @@ names, and reports what SnapTrade did with each: accepted, filled, cancelled,
 rejected and why. It trades only on a connection where an admin enabled
 trading (see [Setup](setup.md)); every connection starts read-only. It sends
 nothing new while trading is paused or stopped, and a stop cancels what it is
-working at SnapTrade at once. In sample data it trades with a simulated
-brokerage, never SnapTrade.
+working at SnapTrade at once. From version 0.17.0 it also reports the fills
+of orders placed in the broker's own app, on a mapped account, for your
+execution plugin to accept (to an order) or answer DK; SnapTrade is told
+nothing of either answer, since it takes none. In sample data it trades with
+a simulated brokerage, never SnapTrade.
 
 ## What it reads
 

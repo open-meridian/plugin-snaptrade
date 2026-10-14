@@ -291,7 +291,9 @@ class Syncer:
             # A personal key has no users to list; nothing else depends on it.
             users = ()
 
-        connections = views(snapshot, config.stale_after, config.counted_as_cash)
+        connections = views(
+            snapshot, config.stale_after, config.counted_as_cash, config.account_currency
+        )
         self._keep_raw(config, snapshot, connections)
         self._note_not_carried(snapshot)
         observed = ns(snapshot.read_at)

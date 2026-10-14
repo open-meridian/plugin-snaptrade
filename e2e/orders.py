@@ -1,6 +1,7 @@
-"""`make e2e`'s order path (contract v22; meridian-design plans/an-order-
-reaches-a-venue-through-the-book, "v22: SnapTrade's make e2e on the
-harness"), after the custody steps, in the same harness: SnapTrade holding
+"""`make e2e`'s order path (contract v22, and v23's venue-originated fills;
+meridian-design plans/an-order-reaches-a-venue-through-the-book, "v22:
+SnapTrade's make e2e on the harness" and "v23: venue-originated fills"),
+after the custody steps, in the same harness: SnapTrade holding
 `custody` and `connectivity` in sample data, and the desk (e2e/desk.py)
 holding `portfolio`, `oms` and `ems`. SIMULATED ONLY: SnapTrade's synthetic
 brokerage (src/snaptrade/synthetic_orders.py); no SnapTrade, no brokerage,
@@ -14,10 +15,15 @@ no paper account and no trading API is reached.
    compliance plugin here).
 2. A buy of 10, limit, day: released, claimed, placed at SnapTrade's
    instance, acknowledged with SnapTrade's order ID and filled 4 then 6; the
-   order filled; the book's position up by 10 with its pending lines. The
-   order the synthetic brokerage took outside the platform, on the mapped
-   account, is left alone: no order recorded, no fill (ruled 2026-10-13;
-   venue-originated fills are v23's).
+   order filled; the book's position up by 10 with its pending lines.
+2b. Contract v23: the order placed in the broker's own app on the mapped
+   account (SYN-OUT-0001, a buy of 3), unfilled when SnapTrade first read
+   the account's orders, fills 1 then 2: each fill reported on no
+   placement and held unmatched, no order recorded for it. The desk answers
+   the first DK (no matching order), SnapTrade told nothing, and accepts the
+   second to a new order, which the book records filled with its placement;
+   nothing of the order is left unmatched, and the position is up by the 2
+   accepted, never by the 1 answered DK.
 3. Good till date, which synthetic Alpaca takes none of: rejected
    `unsupported`, nothing refused by the book.
 4. A replace and a cancel the desk asks for, each told by its kind on the
@@ -46,6 +52,7 @@ import time
 COMPOSE = sys.argv[1:]
 LOG = ".e2e/orders.log"
 CODE = "ALPACA:SYN-ALP-1001"
+OUTSIDE = "SYN-OUT-0001"
 ALPACA_CONNECTION = "00000000-0000-4000-8000-00000000a001"
 
 
@@ -179,10 +186,9 @@ def run():
     must(held["venue_order_id"].startswith("SYN-ORD-"), f"step 2, SnapTrade's order ID: {held}")
     book = compose("run", "--rm", "-T", "store", "book").stdout
     executions = [line for line in book.splitlines() if line.startswith("execution|E2E Orders|")]
-    fills = sorted(line.split("|")[4:6] for line in executions)
-    # The desk's 4 then 6, and the order the brokerage took outside the
-    # platform (SYN-OUT-0001, 3 at 226.10), recorded once its account's code
-    # was mapped.
+    # The desk's 4 then 6 at its limit; the fills of the order placed in the
+    # broker's app (226.1) are step 2b's.
+    fills = sorted(line.split("|")[4:6] for line in executions if line.split("|")[5] == "230")
     must(fills == [["4", "230"], ["6", "230"]], f"step 2, the fills: {executions}")
     position = [line for line in book.splitlines()
                 if line.startswith("position|E2E Orders|") and "AAPL" in line]
@@ -190,6 +196,46 @@ def run():
          f"step 2, the position up by the desk's 10, nothing of the venue's own order: {position}")
     listed = desk("write", f"/orders?account={account}")["orders"]
     must(len(listed) == 1, f"step 2, no order recorded for the venue's own: {listed}")
+
+    # 2b. The order placed in the broker's own app (contract v23).
+    def unmatched():
+        held = desk("write", f"/executions?account={account}&state=unmatched")["executions"]
+        mine = [e for e in held if e["venue_order_id"] == OUTSIDE]
+        return mine if sorted(e["quantity"] for e in mine) == ["1", "2"] else None
+
+    outside = {e["quantity"]: e for e in until(
+        90, unmatched, f"step 2b, {OUTSIDE}'s fills, 1 then 2, were not held unmatched")}
+    must(all(not e["placement_id"] for e in outside.values()),
+         f"step 2b, each on no placement: {outside}")
+    must(len(desk("write", f"/orders?account={account}")["orders"]) == 1,
+         "step 2b, no order recorded for the venue's own")
+    dk = desk("write", f"/dk?executions={outside['1']['execution_id']}")
+    must(dk.get("answered") == [outside["1"]["execution_id"]], f"step 2b, the DK: {dk}")
+    accepted = desk("write", f"/accept?executions={outside['2']['execution_id']}")
+    must(accepted.get("order_id") and accepted.get("placement_id"),
+         f"step 2b, the accept: {accepted}")
+
+    def answered():
+        held = desk("write", f"/executions?account={account}&state=dont_know")["executions"]
+        return [e for e in held if e["execution_id"] == outside["1"]["execution_id"]] or None
+
+    (dk_held,) = until(30, answered, "step 2b, the fill answered DK is not held DK")
+    must(dk_held["dk_reason"] == "DK_REASON_NO_MATCHING_ORDER", f"step 2b: {dk_held}")
+    made = until(60, lambda: (lambda o: o if o["state"] == "ORDER_STATE_FILLED" else None)(
+        order_of(account, accepted["order_id"])), "step 2b, the accept's order is not filled")
+    must(made["reported_filled"] == "2" and placement_of(made, accepted["placement_id"])[
+        "venue_order_id"] == OUTSIDE, f"step 2b, the accept's order and placement: {made}")
+    left = desk("write", f"/executions?account={account}&state=unmatched")["executions"]
+    must(not [e for e in left if e["venue_order_id"] == OUTSIDE],
+         f"step 2b, nothing of {OUTSIDE} left unmatched: {left}")
+
+    def moved():
+        lines = compose("run", "--rm", "-T", "store", "book").stdout.splitlines()
+        held = [line for line in lines
+                if line.startswith("position|E2E Orders|") and "AAPL" in line]
+        return held if held and held[0].split("|")[4] == "12" else None
+
+    until(60, moved, "step 2b, the position not up by the 2 accepted alone")
     must(any(line.startswith("pending|E2E Orders|") for line in book.splitlines()),
          "step 2, pending to the settlement date the date read gave")
 
@@ -266,8 +312,10 @@ def run():
     print(
         f"orders OK: trading enabled on Alpaca's connection, the desk's buy of 10 acknowledged "
         f"({held['venue_order_id']}) and filled 4 then 6, each with its settlement date, "
-        f"the position up by 10, the order the brokerage took outside "
-        f"the platform left alone; good till date rejected unsupported; a replace at "
+        f"the position up by 10; the order placed in the broker's app ({OUTSIDE}) "
+        f"reported on no placement, its fill of 1 answered DK and its fill of 2 accepted "
+        f"to a new order ({accepted['order_id']}), the position up by the 2 alone; "
+        f"good till date rejected unsupported; a replace at "
         f"SnapTrade to its new order ({held4['venue_order_id']}), one not offered refused "
         f"unsupported, and a cancel at SnapTrade; "
         f"a placement held under a pause and sent when it lifted; a stop's cancel at once; a "

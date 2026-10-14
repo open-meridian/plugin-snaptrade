@@ -134,6 +134,7 @@ async def sync(
     read: Snapshot,
     plan_codes: tuple[PlanCodeLink, ...] = (),
     already_recorded: bool = False,
+    account_currency: tuple[dict[str, str], ...] = (),
 ) -> None:
     """What a read does with what SnapTrade answered (sync.py): the accounts
     reported, each one's sync state with how far back its history goes, the
@@ -155,7 +156,11 @@ async def sync(
         ),
     )
     contract = Contract(cast(meridian.Plugin, recorder))
-    shown = [view for each in views(read, STALE_AFTER) for view in each.accounts]
+    shown = [
+        view
+        for each in views(read, STALE_AFTER, account_currency=account_currency)
+        for view in each.accounts
+    ]
     await contract.report_accounts([view.account for view in shown])
     for view in shown:
         await contract.report_sync(
@@ -337,7 +342,9 @@ PRODUCERS: dict[str, Callable[[Recorder], Coroutine[Any, Any, None]]] = {
     "pending-by-value-date": reading(
         positions=[position("SAP", "30")], activities=[buy("SAP", "5", TOMORROW)]
     ),
-    "resolve-states-what-the-source-states": reading(positions=[position("AAPL", "12.5")]),
+    "resolve-gives-the-currency-with-its-provenance": reading(
+        positions=[position("AAPL", "12.5")]
+    ),
     "kind-not-converted-on-an-ambiguous-resolve": ambiguous_for("TOKN"),
     # Contract v14: each of SnapTrade's activity types, converted to its kind.
     "activity-purchase": reporting(
@@ -499,3 +506,96 @@ def test_a_mutation_sending_stale_for_holdings_unavailable_fails_the_suite(
     monkeypatch.setattr(contract, "_SYNC_STATE", mutated)
     report = run("custody", PRODUCERS, not_presented=NOT_PRESENTED, instance_id="snaptrade")
     assert set(report.failures) == {"sync-holdings-unavailable"}
+
+
+#: The account's currency, set by a person in the plugin's settings (the
+#: SDK's `account_currency`, contract v23), the conductor's stamp on the row.
+SET_BY = "local|pat"
+ACCOUNT_CURRENCY = (
+    {
+        "external_account": "",
+        "currency": "CAD",
+        "changed_by": "local|pat",
+        "changed_at": "2026-10-13T12:00:00.000000Z",
+    },
+)
+
+
+async def currency_supplied(recorder: Recorder) -> None:
+    """A position SnapTrade states no currency for, on an account whose
+    currency a person set: the currency theirs, supplied by them."""
+    read = snapshot(
+        positions=[position("SYNX", "7", cost_basis="12.34", instrument={"currency": None})],
+        balances=[balance("CAD", "10.00"), balance("USD", "10.00")],
+    )
+    await sync(recorder, read, account_currency=ACCOUNT_CURRENCY)
+
+
+def test_a_currency_a_person_set_for_the_account_is_supplied_by_them() -> None:
+    """The account's currency set (contract v23) comes before the rule: the
+    row's amounts are in it, its provenance supplied naming who set it, and
+    the resolve is narrowed by no currency, which SnapTrade did not state;
+    the suite's case passes on its supplied way."""
+    recorder = Recorder("snaptrade")
+    asyncio.run(currency_supplied(recorder))
+    (row,) = [r for r in recorder.on("RecordHolding") if r.average_cost.currency_code]
+    assert row.average_cost.currency_code == "CAD"
+    assert [(p.field, p.kind, p.person) for p in row.provenance if "currency" in p.field] == [
+        ("average_cost.currency_code", ops.PROVENANCE_KIND_SUPPLIED, SET_BY)
+    ]
+    (resolve,) = [
+        r for r in recorder.on("ResolveIdentifier") if r.identifiers[0].value == "SYNX"
+    ]
+    assert resolve.currency == "", "narrowed by no currency SnapTrade did not state"
+    assert resolve.stated_currency == "CAD"
+    assert [(p.field, p.kind, p.person) for p in resolve.provenance] == [
+        ("stated_currency", ops.PROVENANCE_KIND_SUPPLIED, SET_BY)
+    ]
+    report = run(
+        "custody",
+        {**PRODUCERS, "currency-not-stated": currency_supplied},
+        not_presented=NOT_PRESENTED,
+        instance_id="snaptrade",
+    )
+    assert report.passed, report.failures
+
+
+def test_an_account_row_comes_before_the_plugin_wide_one() -> None:
+    own = {
+        "external_account": "ALPACA:INST-1",
+        "currency": "eur",
+        "changed_by": "local|sam",
+        "changed_at": "",
+    }
+    recorder = Recorder("snaptrade")
+    read = snapshot(
+        positions=[position("SYNX", "7", cost_basis="12.34", instrument={"currency": None})],
+        balances=[balance("USD", "10.00")],
+    )
+    asyncio.run(sync(recorder, read, account_currency=(*ACCOUNT_CURRENCY, own)))
+    (row,) = [r for r in recorder.on("RecordHolding") if r.average_cost.currency_code]
+    assert row.average_cost.currency_code == "EUR"
+    assert [p.person for p in row.provenance if "currency" in p.field] == ["local|sam"]
+
+
+def test_a_derived_currency_is_offered_on_the_resolve_with_its_rule() -> None:
+    """No person set the account's currency: the rule's, offered on the
+    resolve with the rule as its provenance, narrowing nothing; one
+    SnapTrade states carries none (contract v23)."""
+    recorder = Recorder("snaptrade")
+    asyncio.run(PRODUCERS["currency-not-stated"](recorder))
+    (resolve,) = [
+        r for r in recorder.on("ResolveIdentifier") if r.identifiers[0].value == "SYNX"
+    ]
+    assert (resolve.currency, resolve.stated_currency) == ("", "USD")
+    assert [(p.field, p.kind, p.rule) for p in resolve.provenance] == [
+        (
+            "stated_currency",
+            ops.PROVENANCE_KIND_DERIVED,
+            "the account's only cash currency, or US dollars",
+        )
+    ]
+    stated = Recorder("snaptrade")
+    asyncio.run(PRODUCERS["a-security-holding"](stated))
+    (resolve,) = stated.on("ResolveIdentifier")
+    assert resolve.stated_currency == "USD" and list(resolve.provenance) == []

@@ -71,6 +71,7 @@ def test_the_settings_follow_the_custody_role_s_order() -> None:
         USER_SECRET,
         "plan_code_links",
         "counted_as_cash",
+        "account_currency",
         PERSONAL_KEY,
         SYNTHETIC,
     ]
@@ -207,3 +208,25 @@ def test_no_secret_appears_in_the_configurations_repr() -> None:
     printed = repr(config_from(COMMERCIAL_GIVEN))
     for secret in ("CLIENT", "KEY", "SECRET"):
         assert secret not in printed
+
+
+def test_the_accounts_currency_is_the_sdks_common_setting_for_custody() -> None:
+    """Contract v23: `account_currency`, the SDK's table setting, declared
+    for custody; its rows read as delivered, who changed each with it."""
+    setting = BY_NAME["account_currency"]
+    assert setting.label == "Account currency" and setting.roles == ("custody",)
+    assert [c.name for c in setting.columns] == ["external_account", "currency"]
+    rows = [
+        {"external_account": "", "currency": "usd", "changed_by": "local|pat"},
+        "not a row",
+    ]
+    config = config_from({"account_currency": rows})  # type: ignore[dict-item]
+    assert config.account_currency == (
+        {
+            "external_account": "",
+            "currency": "usd",
+            "changed_by": "local|pat",
+            "changed_at": "",
+        },
+    )
+    assert config_from({}).account_currency == ()

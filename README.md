@@ -8,13 +8,19 @@ workflow W2 (holdings ingestion), and each account's activity as the
 custodian states it. It holds the `custody` role, and from contract v22 the
 `connectivity` role too: it places the orders a deployment's `ems` sends it
 at SnapTrade's trading API and reports what SnapTrade did with them
-("Trading", below). This is release 0.16.0, not released (CHANGELOG.md says
-what each release changed). How to set it up and use it,
+("Trading", below), and from contract v23 the fills of orders placed in a
+broker's own app, for the `ems` to accept or answer DK. This is release
+0.17.0, not released (CHANGELOG.md says what each release changed). How to set it up and use it,
 for its admin and its readers, is in [docs/](docs/README.md). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.26.0`, which declares
-contract v22 (meridian-design plans/an-order-reaches-a-venue-through-the-book,
+It is built on the SDK it pins, `open-meridian==0.27.0`, which declares
+contract v23 (meridian-design tasks/sdk-contract/venue-originated-fills-and-
+the-lakes-outcomes-contract): venue-originated fills, accepted or answered
+DK by the `ems`; `FEE_KIND_COMMISSION`; the custody suite's markers for what
+a custodian never states; and the account's currency a person sets
+(`account_currency`). Before it, contract v22
+(meridian-design plans/an-order-reaches-a-venue-through-the-book,
 build row 16): the order path's slice A and settlement calendars. Contract
 v21's service accounts this plugin needs none of: it changes nothing of the
 deployment's of its own accord, and what it reports of an order are a
@@ -124,11 +130,11 @@ tax lots for (the History tab, below). Neither is sent to the street from
 there: the activities reach it by the reads above, and the proposals are for
 the person to carry into an opening balance and answer for there.
 
-## Trading (connectivity, contract v22)
+## Trading (connectivity, contracts v22 and v23)
 
-SnapTrade's next version holds `connectivity` beside `custody`
-(meridian-design plans/an-order-reaches-a-venue-through-the-book, build row
-16; W11.8 to W11.12 and W11.20). It is `src/snaptrade/trading.py`, run
+It holds `connectivity` beside `custody` (meridian-design
+plans/an-order-reaches-a-venue-through-the-book, build row 16 and "v23:
+venue-originated fills"; W11.8 to W11.12, W11.20, W11.23 and W11.24). It is `src/snaptrade/trading.py`, run
 beside the custody reads once the deployment approved the role, and it
 reaches SnapTrade only through `venue.py`. **Tests and `make e2e` trade only
 with the synthetic brokerage** (`src/snaptrade/synthetic_orders.py`), never
@@ -188,9 +194,16 @@ owner's alone, manual, later.
   `FEE` activity whose `external_reference_id` is the brokerage ID of an
   order this plugin placed that ended with nothing filled is a charge on
   that placement (ReportCharge, kind cancel where it was cancelled, the
-  amount positive as a fee takes cash), read for ten reads after the order
-  ended. A fee on a filled order, or naming no order of a placement, is no
-  charge here; custody reports every activity to the street as it stands.
+  amount positive as a fee takes cash). From contract v23 the commission
+  SnapTrade states on a trade, the `fee` of the `BUY` or `SELL` activity
+  naming the order, is a charge of kind commission (`FEE_KIND_COMMISSION`)
+  on the order's placement, or on no placement for an order placed in the
+  broker's own app (below). Each is read for ten reads after the order
+  ended or last filled, one read of the account's activities a poll, and
+  reported once, noted in the plugin's storage (`trading/charged.json`),
+  since a charge carries no idempotency key. A `FEE` activity on a filled
+  order, or naming no order the plugin knows, is no charge here; custody
+  reports every activity to the street as it stands.
 - **The firm's controls.** It reads the trading instructions in force on
   start and hears each change. Under a pause or a stop on All accounts, on
   its instance, or on a placement's account, it sends nothing new: a queued
@@ -231,19 +244,41 @@ owner's alone, manual, later.
   and none for a read-only one; never a strategy, SnapTrade having none to
   describe on FIXatdl's model. A brokerage refusing one of them answers at
   placement, `venue rejected`. The synthetic brokerages state their own
-  (synthetic Alpaca takes no good-till-date order).
-- **Orders placed outside the platform are not reported in v22.** `portfolio`
+  (synthetic Alpaca takes no good-till-date order). From contract v23 it
+  says SnapTrade takes no execution acknowledgement
+  (`execution_acknowledgement` `EXECUTION_ACKNOWLEDGEMENT_NONE`): SnapTrade's
+  API has no ExecutionAcknowledgement (35=BN) and no DontKnowTrade (35=Q), so
+  the `ems` says "the venue is not told" before a DK, and the plugin sends
+  SnapTrade nothing on an accept or a DK.
+- **Fills of orders placed in the broker's own app** (contract v23; the
+  order-path plan's rulings 1 and 8 to 19, ruled 2026-10-13). `portfolio`
   and the `oms` own orders, the `ems` owns placements, and this plugin owns
-  fills (ruled 2026-10-13): it never records an order or creates a
-  placement, and the sidecar refuses either from a connectivity plugin. An
-  order SnapTrade lists on a mapped account that no placement names -- one
-  the brokerage took outside the platform -- is kept in SnapTrade's answer as
-  received, said once in the log, and nothing more: no order, no placement,
-  and its fill is not reported. **Venue-originated fills are planned for
-  v23**: the fill reported on no order and no placement, waiting in the book
-  as unmatched, for the `ems` to accept it (linking it to an order) or answer
-  it DK. SnapTrade's API has no message for either answer, so the plugin
-  will send SnapTrade nothing for them.
+  fills: it never records an order or creates a placement, and the sidecar
+  refuses either from a connectivity plugin. SnapTrade's account orders
+  include orders placed in the broker's own app; one on a mapped account
+  that no placement names has each of its fills reported on no placement
+  (ReportExecution naming the venue account code, the instrument its symbol
+  resolves to by the fill's time, the side -- buy, sell or sell short, as
+  SnapTrade's action says; an option's opening or closing is not reported
+  and said once -- the venue order ID, and the client order ID where
+  SnapTrade states one), inferred and derived to its ID as any fill is, with
+  its settlement date. The book holds it unmatched, moving nothing, for the
+  `ems` to accept (to an order, or a new one made from it) or answer DK. A
+  venue order with no fill is never reported. What an order had filled when
+  the plugin first read its account's orders is the account's history, which
+  the custodial statement holds, and is never reported; when it first read
+  each account, and each such order's fills, are kept in its storage
+  (`trading/originated.json`), so a restart reports nothing twice. Once an
+  accept creates the `ems`'s placement at filled naming the venue order, the
+  plugin hears it (PlacementUpdated, or the fill matched on
+  ExecutionRecorded) and reports the order's later fills and busts on that
+  placement, and the commission charges it reported on no placement again
+  on it (ruling 17); after a DK, a later fill is reported on no placement
+  again and answered on its own. A fill taken back (the filled quantity
+  falling) is busted on no placement, closing it with nothing to answer. A
+  symbol naming none of the deployment's records is reported missing and the
+  fill waits, since a fill on no placement names its instrument. SnapTrade
+  is told nothing of an accept or a DK.
 - **A venue's symbol on a fill.** Where SnapTrade's order record names a
   symbol other than the ticker placed (one it renamed while the order
   worked), the symbol is resolved by the fill's time and reported missing
@@ -259,7 +294,8 @@ owner's alone, manual, later.
   which is the firm's to decide.
 - **What it does not do**: a locate (SnapTrade offers no locate API), a
   place of execution (SnapTrade states none: never the listing exchange in
-  its place), a venue-originated fill (v23's), a strategy.
+  its place), an execution acknowledgement (SnapTrade takes none), a
+  value-date roll (SnapTrade's brokerages settle each trade), a strategy.
 
 It polls SnapTrade for its working orders every 15 seconds (every second in
 synthetic mode), within SnapTrade's limit of ten requests a minute per
@@ -267,8 +303,14 @@ account.
 
 **The connectivity suite** (`tests/test_connectivity_suite.py`) runs every
 case of the SDK's suite against the plugin's own Trader and the synthetic
-brokerage: 20 of its 27 pass, and seven are not presented, each with why,
-as the suite lets a case marked `about` or `about_field` be:
+brokerage: 23 of its 31 pass -- among them contract v23's
+`reports-a-fill-on-no-placement`,
+`reports-a-later-fill-on-the-accepted-placement` and
+`re-reports-a-charge-on-the-accepted-placement` (SYN-OUT-0001, below), and
+the `about` cases SnapTrade does present, `reports-a-bust` (a later read
+showing less filled) and `reports-a-charge` (a cancel's `FEE` activity
+naming the order) -- and eight are not presented, each with why, as the
+suite lets a case marked `about` or `about_field` be:
 `reads-a-calendar` (it asks the date read for each fill's settlement date;
 it reads no calendar's days), `records-a-locate` and
 `resolves-a-venue-symbol-by-the-facts-date` (SnapTrade offers no locate
@@ -277,9 +319,15 @@ API),
 states no fill's place of execution), and
 `reads-whether-releases-wait-for-compliance` and
 `hears-an-accounts-attributes-change` (it places what its `ems` released;
-whether releases wait for compliance changes nothing it sends). The custody
-suite's `asks-for-a-settlement-date` is the same fill path; its
-`reads-a-calendar` is not presented, with the same why.
+whether releases wait for compliance changes nothing it sends), and
+`reports-a-value-date-roll` (SnapTrade's brokerages settle each trade on
+its settlement date; none rolls a spot position at a daily cut). No suite
+test is skipped or expected to fail. The custody suite's
+`asks-for-a-settlement-date` is the same fill path; its `reads-a-calendar`
+is not presented, with the same why, and every other case passes, contract
+v23's `about` cases included, since SnapTrade states them all: a plan's own
+fund codes (Fidelity's OQKR), a sweep fund it counts in cash, a split, and a
+holding whose currency it does not state.
 
 ### The custodian's activity
 
@@ -384,7 +432,7 @@ meridian-design.
 | position `price` | nothing. SnapTrade reports no market value, and one is never made from a price; a cash row's value is its amount |
 | position `cost_basis` | the holding's average cost, per unit (per share for an option), as reported, in the row's currency (the product owner, 2026-10-01); never multiplied out, so the holding's total cost basis is left unset: SnapTrade reports none. Two rows merged into one send none |
 | position `tax_lots[]` | the holding's lots, in SnapTrade's order: `quantity` signed as the holding (a short holding's lots are short), `cost_basis` as the lot's cost, the whole lot's, sign as reported, and the date part of `original_purchase_date` as written. None where SnapTrade lists none (lots come only on some brokerages, and with SnapTrade's paid add-on), never a made-up one; and none for a holding any of whose lots cannot be read exactly (no quantity, a side contradicting the holding's, a number past 18 places, a date that is not one), said in the log. `purchased_price`, `current_value` and `lot_id` are not sent |
-| position `currency` | the row's currency; where SnapTrade states none for the position, the listing's, which SnapTrade states too; where it states neither, the account's only cash currency, or USD, each amount in it (an average cost, a lot's cost) carrying its provenance, derived by that rule |
+| position `currency` | the row's currency; where SnapTrade states none for the position, the listing's, which SnapTrade states too; where it states neither, the account's currency a person set in `account_currency` (contract v23), each amount in it (an average cost, a lot's cost) carrying its provenance, supplied by who set the row; else the account's only cash currency, or USD, derived by that rule and said so. Either is offered on the resolve with its provenance (`ResolveIdentifierRequest.provenance`, contract v23), never as SnapTrade's, and neither narrows a resolve |
 | `instrument.figi_instrument.figi_code` | identifier `{scheme: figi}` |
 | `instrument.symbol` (a ticker, or an option's OCC symbol) | identifier `{scheme: symbol, source: snaptrade}` |
 | `instrument.exchange`, when a MIC | the MIC resolution is qualified by |
@@ -461,12 +509,14 @@ without any of them.
 | `trading_past_window` | Trading: past the window | choice | no | no | the SDK's: `archived`, `kept` or `deleted`, defaulting as above |
 | `plan_code_links` | Plan-code links | table: account, plan code, instrument | no | no | each plan's own fund code on an account, linked to the instrument record it is; at most 200 rows. Each row arrives with who changed it and when |
 | `counted_as_cash` | Cash links | table: account (external account, optional), symbol (text), currency (text, an ISO 4217 code), the order of Plan-code links' columns | no | no | positions a custodian holds as cash that SnapTrade does not mark a cash equivalent, such as Fidelity's FDIC-insured deposit as an IRA's core position (`FDIC99532`): each is sent as the cash of its currency, naming who listed it and when (above). The symbol as SnapTrade names it; a blank account is every account holding it, and a row naming the account comes first; at most 200 rows. A fund stays a fund. Where SnapTrade marks the position itself, its own flag decides and the row is not read |
+| `account_currency` | Account currency | table: account (external account, optional), currency (text, an ISO 4217 code) | no | no | the SDK's common setting (contract v23): the currency of a linked account's positions where SnapTrade states none for the position or its listing. A row naming the account comes first, a blank account is every linked account's; each arrives with who changed it, the person the currency is then supplied by. Without a row, such a position is in the account's only cash currency, or USD, by that rule (above) |
 | `sample_data` | Sample data | on/off, developer | no | no | serve built-in responses instead of calling SnapTrade; default off |
 | `snaptrade_personal_key` | Personal key (the old way) | on/off, developer | no | no | 0.1.0's way of saying the key's kind; read only while the key type is unset |
 
 A developer's setting is shown in the form only on a development deployment.
 The dashboard draws each table setting as its own tab under Manage, titled by
-its label: Plan-code links and Cash links, their columns in one order
+its label: Plan-code links, Cash links and Account currency, the first two's
+columns in one order
 (Account | Plan code / Symbol | Instrument / Currency; the product owner,
 2026-10-05). A row is kept by column name, so one saved before 0.11.1, when
 Cash links' account came last, reads the same.
@@ -1040,9 +1090,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.26.0`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.26.0`.
-0.26.0 is not on PyPI yet: until it is released, `make ci-local` builds it
+The SDK is pinned exactly, `open-meridian==0.27.0`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.27.0`.
+0.27.0 is not on PyPI yet: until it is released, `make ci-local` builds it
 from the sibling checkout, and CI, which has none, cannot install it.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
@@ -1082,7 +1132,7 @@ none declared not presented since 0.9.1) were done by hand.
 now. Moving to 0.17.0 (contract v12) ran `meridian plugin migrate`, which
 moved the pins and rewrote nothing, finding the five routes that change
 something with no typed record; each was typed by hand, the reads given
-typed answers, and `check.yaml` holds the plugin to `meridian` 0.1.42's (0.1.30's until 0.16.0, which holds `connectivity`)
+typed answers, and `check.yaml` holds the plugin to `meridian` 0.1.43's (0.1.30's until 0.16.0, which holds `connectivity`; 0.1.42's in 0.16.0)
 `plugin check --verified`. Moving to 0.19.0 (contract v14) from 0.17.0:
 the migrations through 0.18.0 (contract v13, tickets) and 0.19.0 move only
 the pins, moved by hand; the sync status's `history_from`, the activities
@@ -1129,6 +1179,16 @@ operations and deliveries, `compute_date`, `read_calendar`); then, for
 meridian-schema 3d15320 (approved 2026-10-13), a change told by
 `Placement.change_requests`, the account scope's venue account map, no
 venue-originated order, and the `trading` kind.
+Moving to 0.27.0 (contract v23) moved the pins, as `meridian plugin migrate
+--to 0.27.0` moves them, rewriting nothing; then by hand: the fills of orders
+placed in the broker's own app reported on no placement, the accept's
+placement adopted and the executions heard (`receive(execution_recorded=)`),
+the catalogue's `execution_acknowledgement`, the commission charge
+(`FEE_KIND_COMMISSION`), the account's currency (`account_currency`), the
+connectivity suite's v23 cases, and `tests/test_contract.py` knowing what v23
+adds that this plugin does not call (`accept_execution`,
+`dont_know_execution`, `report_value_date_roll`, the outcomes,
+`list_orders(execution_state=)`, `propose_order(quote_currency=)`).
 To move to a new SDK release, change all three together and run
 `make ci-local`; `tests/test_contract.py` fails on any operation or parameter
 the new SDK has that this plugin does not know, naming it.
@@ -1143,7 +1203,9 @@ with it (`HARNESS_IMAGE`), which it runs on; below.
 a sidecar, with a broker, the street store and a dashboard, all from the
 released `meridian-runtime` image the `Makefile` pins
 (`RUNTIME_IMAGE`, `<commit>@sha256:<digest>`; the core it names is in the
-`Makefile`, contract v22).
+`Makefile`, contract v22 until core v23's runtime and harness are published,
+which `make ci-local` meanwhile runs against built locally:
+`make ci-local RUNTIME_IMAGE=... HARNESS_IMAGE=...`).
 That deployment is core's **plugin harness**, published beside the runtime
 as its own image of files, `meridian-harness`, at the same commit's tag
 (`HARNESS_IMAGE`, pinned by digest too; `/harness`, with its own README).
@@ -1230,7 +1292,7 @@ this plugin's own page, it:
     storage, and no deletion recorded;
 16. makes the plugin's container again: its pass keeps the unit inside the
     hold again, and `store moves` is unchanged, nothing recorded twice;
-17. then the order path (contract v22, `e2e/orders.py`), **with the synthetic
+17. then the order path (contracts v22 and v23, `e2e/orders.py`), **with the synthetic
     brokerage only**: an account for the orders granted to the desk, Apple's
     record completed, SnapTrade made available and linked to the desk, the
     account mapped to `ALPACA:SYN-ALP-1001`, and trading enabled on Alpaca's
@@ -1238,9 +1300,14 @@ this plugin's own page, it:
     Connections); a buy of 10, limit, day, released, claimed and placed at
     SnapTrade's instance, acknowledged with SnapTrade's order ID and filled
     4 then 6, each fill with its settlement date (the date read's, else the
-    one SnapTrade's activity states); the position up by 10, and the order
-    the brokerage took outside the platform, on the mapped account, left
-    alone: no order recorded, no fill (ruled 2026-10-13); a good-till-date
+    one SnapTrade's activity states); the position up by 10; then (contract
+    v23) the order placed in the broker's own app on the mapped account,
+    `SYN-OUT-0001`, unfilled when the plugin first read the account and
+    filled 1 then 2, each fill reported on no placement and held unmatched,
+    no order recorded for it: the desk answers the fill of 1 DK (no matching
+    order), SnapTrade told nothing, and accepts the fill of 2 to a new
+    order, which the book records filled with its placement, nothing of the
+    order left unmatched and the position up by the 2 alone; a good-till-date
     order rejected `unsupported`; a working placement replaced at SnapTrade
     to a new limit, SnapTrade's new order ID recorded and the request
     applied, then a replace to good till date refused `unsupported` with

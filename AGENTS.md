@@ -95,9 +95,10 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   rule, with its provenance** (the product owner, 2026-10-01; contract v11).
   The settled quantity and the pending by value date come from SnapTrade's
   activities, the cash of a currency is sent net of the money market funds
-  SnapTrade counts in it, an unstated currency is the account's only cash
-  currency or USD, and an unstated institution is the connection's: each
-  carries its provenance (`normalise.Closed`, sent by `contract.py`). SnapTrade
+  SnapTrade counts in it, an unstated currency is the account's currency a
+  person set in the SDK's `account_currency` setting (contract v23), supplied
+  by them, else the account's only cash currency or USD, and an unstated
+  institution is the connection's: each carries its provenance (`normalise.Closed`, sent by `contract.py`). SnapTrade
   is a cache of the brokerage, and the plugin resolves it (the product owner,
   2026-10-03): a connection SnapTrade disabled needs sign-in, or is disabled
   where SnapTrade turned its brokerage off, the rule in the sync status's
@@ -137,15 +138,23 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   change by the placement rejected while it works (transitions row 14);
   reads the codes mapped on it from `AccountScope.venue_account_map`, never
   from the placements seen; never records an order or creates a placement
-  (ruled 2026-10-13: an order the brokerage took outside the platform is
-  kept as received and left alone, its fill v23's); reports each fact with
+  (ruled 2026-10-13); from contract v23 reports each fill of an order placed
+  in the broker's own app (one no placement names, on a mapped account) on
+  no placement, naming the instrument, side and venue order, never what it
+  had filled when the plugin first read the account (`Watched`, in
+  storage), and once an accept's placement names the order (PlacementUpdated
+  or ExecutionRecorded) its later fills and charges on that placement;
+  tells SnapTrade nothing of an accept or a DK (its catalogue's
+  `execution_acknowledgement` is none); reports each fact with
   its raw record, kept as the `trading` kind; never sends a placement twice (`Sent`,
   noted in storage before each send; an unanswered send is asked about,
   never resent); infers fills from SnapTrade's filled quantity, each with a
   derived ID and the date read's settlement date (`compute_date`), never a
   guessed date; reports a bust only from a later read showing less filled,
   and a charge only from a `FEE` activity naming an order of a placement
-  that ended unfilled; holds every new send under a pause or a stop and
+  that ended unfilled or, a commission (`FEE_KIND_COMMISSION`), from the
+  `fee` of the `BUY` or `SELL` activity naming an order, each once
+  (`Charged`, in storage); holds every new send under a pause or a stop and
   cancels at SnapTrade under a stop, naming the stop's entry; never sends
   the listing exchange as a place of execution. A connection is read-only
   until an admin of `connectivity` enables trading on it. **Tests and

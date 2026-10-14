@@ -3,6 +3,52 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
+## 0.17.0 (not released)
+
+Contract v23, on open-meridian 0.27.0 (meridian-design tasks/sdk-contract/
+venue-originated-fills-and-the-lakes-outcomes-contract; plans/an-order-
+reaches-a-venue-through-the-book, "v23: venue-originated fills", rulings 1
+to 19).
+
+- **The pins**: moved as `meridian plugin migrate --to 0.27.0` moves them,
+  rewriting nothing; `check.yaml` holds the plugin to `meridian` 0.1.43.
+- **Fills of orders placed in the broker's own app** (README, "Trading"):
+  an order SnapTrade lists on a mapped account that no placement names has
+  each fill reported on no placement, naming the instrument its symbol
+  resolves to, the side, the venue order ID and the client order ID where
+  SnapTrade states one, for the `ems` to accept or answer DK. A venue order
+  with no fill is not reported, nor what an order had filled when the
+  plugin first read the account (its history). Once an accept's placement
+  names the order, its later fills and busts go on that placement; after a
+  DK they arrive unmatched again. Kept in storage (`trading/originated.json`)
+  so a restart reports nothing twice. The plugin hears the executions it
+  reported (ExecutionRecorded).
+- **The catalogue says SnapTrade takes no execution acknowledgement**
+  (`EXECUTION_ACKNOWLEDGEMENT_NONE`): nothing is sent to SnapTrade on an
+  accept or a DK.
+- **A commission is a charge** (`FEE_KIND_COMMISSION`): the `fee` SnapTrade
+  states on the `BUY` or `SELL` activity naming an order, on its placement,
+  or on no placement for an order placed in the broker's app, then again on
+  the placement an accept created. Each charge is reported once, noted in
+  storage (`trading/charged.json`).
+- **The account's currency** (`account_currency`, the SDK's common setting):
+  where SnapTrade states no currency for a position or its listing, the
+  currency a person set for the account comes before the rule, supplied by
+  them; without one, the account's only cash currency or USD, derived, as
+  before. Either is offered on the resolve with its provenance
+  (`ResolveIdentifierRequest.provenance`), narrowing nothing; custody's
+  `resolve-states-what-the-source-states` is now
+  `resolve-gives-the-currency-with-its-provenance`.
+- **The synthetic order placed in the broker's app**, `SYN-OUT-0001`, now
+  fills 1 then 2 after the plugin first reads the account, each fill with a
+  commission of 1.00; `make e2e` answers the first DK and accepts the second
+  to a new order through the stand-in desk.
+- **The suites**: connectivity, 23 of its 31 cases passing, v23's three
+  venue-originated cases among them, and eight not presented with why (v22's
+  seven, and the value-date roll: SnapTrade's trades settle); custody, every
+  case but `reads-a-calendar`, v23's `about` cases presented since SnapTrade
+  states each. No suite test skipped or expected to fail.
+
 ## 0.16.0 (not released)
 
 Contract v22, on open-meridian 0.26.0 (meridian-design plans/an-order-
