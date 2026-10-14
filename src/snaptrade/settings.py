@@ -66,6 +66,8 @@ POLL_SECONDS = "poll_seconds"
 STALE_AFTER_HOURS = "stale_after_hours"
 PLAN_CODE_LINKS = "plan_code_links"
 COUNTED_AS_CASH = "counted_as_cash"
+# The SDK's common setting for a linked account's currency (contract v23).
+ACCOUNT_CURRENCY_ROWS = "account_currency"
 # Sample data, the SDK's one developer setting for it (meridian.sample_data(),
 # ruled 2026-10-02); 0.13's `synthetic` before it.
 SYNTHETIC = "sample_data"
@@ -122,7 +124,8 @@ _VENDORS: tuple[meridian.Setting, ...] = (
     # In the custody role's order (spec/plugin-pages-follow-their-role): the
     # credentials, in SnapTrade's own words; Read every and Stale after, the
     # role's; then SnapTrade's own -- the key's type with the user it reads
-    # gated on it, the plan-code and cash links -- and last the developer's.
+    # gated on it, the plan-code and cash links -- then the account's currency
+    # (below), and last the developer's.
     meridian.Setting(
         CLIENT_ID,
         str,
@@ -249,6 +252,26 @@ _VENDORS: tuple[meridian.Setting, ...] = (
             "cash in its currency, naming who listed it. A fund stays a fund."
         ),
     ),
+)
+
+# The linked account's currency (contract v23; the SDK's common setting,
+# `meridian.account_currency()`, its name approved 2026-10-13): a person's
+# word for the currency of an account's positions where SnapTrade states none
+# for the position or its listing, which comes before the rule (normalise.py).
+# Custody's, as the link tables are; a statement of its own, as sample data's.
+ACCOUNT_CURRENCY = meridian.account_currency(
+    roles=CUSTODY_ONLY,
+    description=(
+        "The currency of a linked account's positions where SnapTrade states none, as an "
+        "ISO 4217 code (USD): a row naming no account is every linked account's, a row "
+        "naming one is that account's own. Without a row, such a position is taken to be in "
+        "the account's only cash currency, or US dollars, by that rule."
+    ),
+)
+
+# The developer's settings, after the vendor's own and the account's
+# currency: 0.1.0's way of saying the key's kind.
+_DEVELOPER: tuple[meridian.Setting, ...] = (
     meridian.Setting(
         PERSONAL_KEY,
         bool,
@@ -273,7 +296,7 @@ SAMPLE_DATA = meridian.sample_data(
         "develop against before any key exists, and trade with a simulated brokerage."
     ),
 )
-DECLARED = (*_VENDORS, SAMPLE_DATA)
+DECLARED = (*_VENDORS, ACCOUNT_CURRENCY, *_DEVELOPER, SAMPLE_DATA)
 
 Values = Mapping[str, str | int | bool | list[dict[str, str]]]
 
@@ -340,6 +363,10 @@ class Config:
     # The positions people listed as cash, as the settings deliver them
     # (counted_as_cash.py).
     counted_as_cash: tuple[CountedAsCash, ...] = ()
+    # The linked accounts' currencies people set, as the settings deliver
+    # them (contract v23): each row's account, currency and who changed it,
+    # read by `meridian.edge.supplied_currency`.
+    account_currency: tuple[dict[str, str], ...] = ()
 
     @property
     def ready(self) -> bool:
@@ -431,6 +458,25 @@ def config_from(values: Values, unset: Collection[str] = ()) -> Config:
         windows=windows_from(values),
         plan_codes=links_of(values.get(PLAN_CODE_LINKS)),
         counted_as_cash=rows_of(values.get(COUNTED_AS_CASH)),
+        account_currency=currency_rows_of(values.get(ACCOUNT_CURRENCY_ROWS)),
+    )
+
+
+def currency_rows_of(rows: object) -> tuple[dict[str, str], ...]:
+    """The rows a delivered `account_currency` holds, each as text: the
+    account (or none, every linked account's), the currency as given, and
+    who changed it and when, as the conductor stamped. Nothing is guessed
+    from a row: one whose code is not a code's shape covers no account
+    (`meridian.edge.supplied_currency`)."""
+    if not isinstance(rows, list):
+        return ()
+    return tuple(
+        {
+            key: str(row.get(key) or "")
+            for key in ("external_account", "currency", "changed_by", "changed_at")
+        }
+        for row in rows
+        if isinstance(row, Mapping)
     )
 
 

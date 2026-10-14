@@ -40,6 +40,7 @@ from .activities import SYMBOL_SCHEME, Converted, PlanCodeLink, link_for
 from .linking import failure
 from .normalise import (
     ACCOUNT_TYPE_SCHEME,
+    RULE_CURRENCY,
     SECURITY_TYPE_SCHEME,
     SOURCE,
     Closed,
@@ -121,6 +122,18 @@ class ActivityOutcome:
     capped: bool = False
 
 
+def _currency_provenance(holding: Holding) -> list[meridian.Provenance]:
+    """The provenance of a security's currency SnapTrade did not state, for
+    the resolve (`ResolveIdentifierRequest.provenance`, contract v23):
+    supplied by the person who set the account's currency, or derived by the
+    rule; none for one SnapTrade stated for the position or its listing."""
+    if not holding.currency_assumed:
+        return []
+    if holding.currency_supplied_by:
+        return [supplied("stated_currency", holding.currency_supplied_by)]
+    return [derived("stated_currency", RULE_CURRENCY)]
+
+
 def _identifiers(holding: Holding) -> list[meridian.Identifier]:
     return [
         meridian.Identifier(scheme=held.scheme, value=held.value, source=held.source)
@@ -189,24 +202,29 @@ class Recorder:
         """W3.1, and W3.2 for an ambiguous miss: the row's instrument, or the
         identifiers it could not be told apart by."""
         identifiers = _identifiers(holding)
-        stated_currency = "" if holding.currency_assumed else holding.currency
+        narrowed_by = "" if holding.currency_assumed else holding.currency
         answer = await self._plugin.resolve_identifier(
             identifiers=identifiers,
             as_of_ns=as_of_ns,
             exchange_mic=holding.exchange_mic,
             # Narrowed only by a currency SnapTrade stated (contract v11).
-            currency=stated_currency,
+            currency=narrowed_by,
             # What SnapTrade says of the security, kept as offers for the
             # deployment admin to accept (W3.1): its class, a money market
             # fund's type where SnapTrade counts it as a cash equivalent, its
-            # currency where stated, its description.
+            # currency, its description.
             stated_asset_class=holding.asset_class or None,
             stated_instrument_type=(
                 "money_market_fund"
                 if holding.cash_equivalent and holding.asset_class == "fund"
                 else None
             ),
-            stated_currency=stated_currency,
+            # The security's currency, stated by SnapTrade or, where it
+            # states none, supplied by the person who set the account's or
+            # derived by the rule, with its provenance (contract v23, W3.1):
+            # offered either way, never presented as SnapTrade's.
+            stated_currency=holding.currency,
+            provenance=_currency_provenance(holding),
             stated_description=holding.description if holding.kind != "cash" else "",
         )
         if answer.instrument_id:

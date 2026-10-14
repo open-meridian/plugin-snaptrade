@@ -1,6 +1,7 @@
-"""SnapTrade as a connectivity plugin (contract v22; meridian-design
-plans/an-order-reaches-a-venue-through-the-book, build row 16; W11.8 to
-W11.12, W11.20).
+"""SnapTrade as a connectivity plugin (contract v22, and v23's venue-
+originated fills; meridian-design plans/an-order-reaches-a-venue-through-
+the-book, build row 16 and "v23: venue-originated fills"; W11.8 to W11.12,
+W11.20, W11.23, W11.24).
 
 **What it does.** It hears each placement naming its own instance, and no
 other's (the sidecar delivers a placement to the connectivity plugin it
@@ -58,9 +59,17 @@ ListOrders), its ID derived as the fill's was.
 activity whose `external_reference_id` is the brokerage ID of an order this
 plugin placed that ended with nothing filled is the brokerage's charge on
 that placement: a ReportCharge, kind cancel where the order was cancelled,
-the amount positive as a fee takes cash. A fee on a filled order, or naming
-no order of a placement, is not a charge here (custody reports every
-activity to the street as it stands).
+the amount positive as a fee takes cash. From contract v23 the commission
+SnapTrade states on a trade -- the `fee` of the `BUY` or `SELL` activity
+naming an order -- is a ReportCharge of kind commission
+(`FEE_KIND_COMMISSION`): on the order's placement, or on no placement for a
+venue-originated order (below), kept unplaced until an accept creates its
+placement, on which it is reported again. Each is looked for over the
+`CHARGE_POLLS` polls after its order ended or last filled, one read of the
+account's activities a poll, and reported once (`Charged`, noted in
+storage). A `FEE` activity on a filled order, or naming no order this plugin
+knows, is not a charge here (custody reports every activity to the street as
+it stands).
 
 **The firm's controls.** It reads the trading instructions in force on start
 (ListTradingInstructions) and hears each change. Under a pause or a stop on
@@ -97,7 +106,11 @@ publishes per venue account code what SnapTrade offers there
 `POST /trade/place` takes, for an account whose connection has trading
 enabled (the synthetic brokerages state their own, synthetic_orders.py), and
 none for a read-only one; never a strategy, SnapTrade having none (FIXatdl's
-model, Q31, has nothing to describe).
+model, Q31, has nothing to describe); and from contract v23 its execution
+acknowledgement, none (`EXECUTION_ACKNOWLEDGEMENT_NONE`): SnapTrade takes no
+ExecutionAcknowledgement (35=BN) and no DontKnowTrade (35=Q), so the `ems`
+says "the venue is not told" before a DK, and nothing is sent to SnapTrade
+on an accept or a DK.
 
 **The accounts mapped on it.** The venue account codes its `ems` mapped on
 this instance are the map the account scope delivers (`AccountScope.
@@ -106,14 +119,29 @@ mapped account's orders are read on every poll, and SnapTrade's answer kept
 as a raw record of the account whenever it changed, as every trading
 exchange is.
 
-**No venue-originated orders** (ruled 2026-10-13): `portfolio` and the
-`oms` own orders, the `ems` owns placements, and this plugin, the
-counterparty's connection, owns fills. An order SnapTrade lists on a mapped
-account that no placement names -- one the brokerage took outside the
-platform -- is never recorded, never placed, and its fills are not reported
-in v22: it is kept in SnapTrade's answer as received and said once in the
-log. Venue-originated fills are planned for v23, reported on no order and no
-placement for the `ems` to accept or answer DK.
+**Venue-originated fills** (contract v23; the order-path plan's rulings 1
+and 8 to 19, ruled 2026-10-13). `portfolio` and the `oms` own orders, the
+`ems` owns placements, and this plugin, the counterparty's connection, owns
+fills. An order SnapTrade lists on a mapped account that no placement names
+-- one placed in the broker's own app, which SnapTrade's account orders
+include -- is never recorded as an order: each fill of it is reported on no
+placement (ReportExecution naming the venue account code, the instrument its
+symbol resolves to by the fill's time, the side, the venue order ID and the
+client order ID where SnapTrade states one), inferred from the filled
+quantity growing and derived to its ID as any fill is, with its settlement
+date; the book holds it unmatched for the `ems` to accept or answer DK. A
+venue order with no fill is never reported. What an order had filled when
+the plugin first read its account's orders is the account's history, which
+its custodial statement holds, and is never reported (`Watched`, kept in
+storage with each such order's fills, so a restart reports nothing twice).
+Once an accept creates the `ems`'s placement at filled naming the venue
+order, the plugin hears it (PlacementUpdated, or the fill matched on
+ExecutionRecorded) and reports the order's later fills and busts on it, and
+its commission charges again there; after a DK a later fill is reported on
+no placement again. A symbol that names none of the deployment's records is
+reported missing and the fill waits, since a fill on no placement names its
+instrument. A bust of a fill on no placement, the filled quantity falling,
+is reported on no placement too, closing it with nothing to answer.
 
 **A venue's symbol on a fill.** SnapTrade's order record names the symbol it
 filled. Where that is not the ticker this plugin placed (a symbol SnapTrade
@@ -123,8 +151,9 @@ records, reported missing (ReportMissingInstrument); the fill is reported on
 the placement either way, the book's instrument being the order's.
 
 What it does not do in this version: a locate (SnapTrade has no locate
-API), a place of execution (SnapTrade states none), a venue-originated fill
-(v23's).
+API), a place of execution (SnapTrade states none), an execution
+acknowledgement (SnapTrade takes none), a value-date roll (its trades
+settle; nothing rolls).
 """
 
 from __future__ import annotations
@@ -232,6 +261,16 @@ CHARGE_POLLS = 10
 
 HOLDING = (ops.TRADING_INSTRUCTION_VALUE_PAUSE, ops.TRADING_INSTRUCTION_VALUE_STOP)
 
+#: The contract's side for each of SnapTrade's order actions on a security,
+#: for a fill on no placement (contract v23); any other action (an option's
+#: opening or closing) is not reported, and said once.
+SIDES_SAID = {
+    "BUY": ops.SIDE_BUY,
+    "BUY_COVER": ops.SIDE_BUY,
+    "SELL": ops.SIDE_SELL,
+    "SELL_SHORT": ops.SIDE_SELL_SHORT,
+}
+
 
 def _ns(moment: datetime) -> int:
     return int(moment.timestamp()) * 1_000_000_000 + moment.microsecond * 1000
@@ -334,6 +373,140 @@ class Sent:
             raise
 
 
+class Charged(Sent):
+    """The charges this plugin has reported, each by the activity it was
+    read from and the placement it was reported on ("" for none), noted in
+    its storage, so a restart never reports one twice: a charge carries no
+    idempotency key."""
+
+    @staticmethod
+    def key(activity_id: str, placement_id: str) -> str:
+        return f"{activity_id}:{placement_id}"
+
+
+@dataclass
+class Originated:
+    """A venue order no placement names, on a mapped account (contract v23):
+    its fills reported on no placement until an accept's placement names it.
+    `filled` counts on from what it had filled when the plugin first read its
+    account's orders, the account's history, which is never reported."""
+
+    venue_order_id: str
+    code: str
+    snaptrade_account_id: str
+    client_order_id: str = ""
+    symbol: str = ""
+    side: int = 0
+    instrument_id: str = ""
+    currency: str = ""
+    # SnapTrade's filled quantity as last reported (from the history), and
+    # its average price then.
+    filled: Decimal = Decimal(0)
+    average: Decimal | None = None
+    # Each fill reported: its derived ID, the filled quantity it brought the
+    # order to, and its trade date; and the book's execution ID where known.
+    fills: list[tuple[str, Decimal, str]] = field(default_factory=list)
+    executions: dict[str, str] = field(default_factory=dict)
+    # The placement an accept created for it, once heard.
+    adopted: str = ""
+    # Its commission charges reported on no placement, by activity ID: the
+    # charge as sent, to be sent again on the accept's placement.
+    charges: dict[str, Json] = field(default_factory=dict)
+    # Not kept: polls its activities are still read for a charge (reset by
+    # each fill), and whether a missing symbol was said.
+    charge_polls: int = CHARGE_POLLS
+    missing: bool = False
+
+    def held(self) -> Json:
+        return {
+            "venue_order_id": self.venue_order_id,
+            "code": self.code,
+            "snaptrade_account_id": self.snaptrade_account_id,
+            "client_order_id": self.client_order_id,
+            "symbol": self.symbol,
+            "side": self.side,
+            "instrument_id": self.instrument_id,
+            "currency": self.currency,
+            "filled": str(self.filled),
+            "average": None if self.average is None else str(self.average),
+            "fills": [[f, str(c), d] for f, c, d in self.fills],
+            "executions": self.executions,
+            "adopted": self.adopted,
+            "charges": self.charges,
+        }
+
+    @staticmethod
+    def of(held: Json) -> Originated:
+        return Originated(
+            venue_order_id=str(held.get("venue_order_id") or ""),
+            code=str(held.get("code") or ""),
+            snaptrade_account_id=str(held.get("snaptrade_account_id") or ""),
+            client_order_id=str(held.get("client_order_id") or ""),
+            symbol=str(held.get("symbol") or ""),
+            side=int(held.get("side") or 0),
+            instrument_id=str(held.get("instrument_id") or ""),
+            currency=str(held.get("currency") or ""),
+            filled=_number(held.get("filled")) or Decimal(0),
+            average=_number(held.get("average")),
+            fills=[
+                (str(f), _number(c) or Decimal(0), str(d))
+                for f, c, d in held.get("fills") or []
+            ],
+            executions={str(k): str(v) for k, v in (held.get("executions") or {}).items()},
+            adopted=str(held.get("adopted") or ""),
+            charges={str(k): _dict(v) for k, v in (held.get("charges") or {}).items()},
+        )
+
+
+class Watched:
+    """When the plugin first read each mapped account's orders, and the
+    venue-originated orders it has seen fill (contract v23), kept as a JSON
+    file in its storage (`trading/originated.json`), written whole on every
+    change, so a restart neither reports a fill twice nor takes an account's
+    history for new fills."""
+
+    def __init__(self, file: Path | None) -> None:
+        self._file = file
+        self.since: dict[str, str] = {}
+        self.orders: dict[str, Originated] = {}
+        if file is not None and file.exists():
+            with contextlib.suppress(OSError, ValueError, TypeError, AttributeError):
+                held = json.loads(file.read_text())
+                self.since = {str(c): str(at) for c, at in (held.get("since") or {}).items()}
+                for each in held.get("orders") or []:
+                    order = Originated.of(each)
+                    if order.venue_order_id:
+                        self.orders[order.venue_order_id] = order
+
+    def first(self, code: str, now: datetime) -> bool:
+        """Whether this is the first read of `code`'s orders, noting it."""
+        if code in self.since:
+            return False
+        self.since[code] = now.isoformat()
+        self.save()
+        return True
+
+    def save(self) -> None:
+        if self._file is None:
+            return
+        self._file.parent.mkdir(parents=True, exist_ok=True)
+        made, written = tempfile.mkstemp(dir=self._file.parent, suffix=".tmp")
+        try:
+            with os.fdopen(made, "w") as file:
+                json.dump(
+                    {
+                        "since": dict(sorted(self.since.items())),
+                        "orders": [o.held() for o in self.orders.values()],
+                    },
+                    file,
+                    sort_keys=True,
+                )
+            os.replace(written, self._file)
+        except BaseException:
+            Path(written).unlink(missing_ok=True)
+            raise
+
+
 @dataclass
 class Worked:
     """A placement SnapTrade holds an order for, as this plugin works it."""
@@ -377,7 +550,9 @@ class Worked:
     ended_polls: int = 0
     # A fill waits for its settlement date (said once).
     waiting: bool = False
-    charged: set[str] = field(default_factory=set)
+    # The placement an accept created at filled for a venue-originated order
+    # (contract v23): only the order's later fills and busts are reported.
+    adopted: bool = False
 
 
 @dataclass
@@ -417,6 +592,8 @@ class Trader:
         secrets: Callable[[], Sequence[str]] = lambda: (),
         sent: Sent | None = None,
         scope: Callable[[], meridian.AccountScope] = meridian.AccountScope,
+        watched: Watched | None = None,
+        charged: Charged | None = None,
     ) -> None:
         self._plugin = plugin
         self._venue = venue
@@ -427,6 +604,10 @@ class Trader:
         self._scope = scope
         self.me: str = plugin.identity.instance_id
         self._sent = sent if sent is not None else Sent(None)
+        self._charged = charged if charged is not None else Charged(None)
+        #: Venue-originated orders (contract v23): when each mapped account's
+        #: orders were first read, and each order's fills on no placement.
+        self.watched = watched if watched is not None else Watched(None)
         # The instructions in force, by their target and setter.
         self.instructions: dict[tuple[Any, ...], ops.TradingInstruction] = {}
         self.working: dict[str, Worked] = {}
@@ -434,9 +615,10 @@ class Trader:
         self.held: dict[str, ops.Placement] = {}
         self.decided: set[str] = set()
         # Every venue order ID the book's placements name; and the orders
-        # SnapTrade lists that none names, each said once.
+        # SnapTrade lists that none names whose fills are the account's
+        # history, or whose action names no side, each said once.
         self.venue_orders: set[str] = set()
-        self.outside: set[str] = set()
+        self.history: set[str] = set()
         self.watermark: ops.Watermark | None = None
         self.published: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {}
         self.shown = Shown()
@@ -495,6 +677,8 @@ class Trader:
         executions: Sequence[ops.Execution],
     ) -> None:
         if placement.connectivity_instance_id != self.me:
+            return
+        if await self._adopt(placement):
             return
         self.venue_orders.update(placement.venue_order_ids)
         if placement.venue_order_id:
@@ -568,6 +752,79 @@ class Trader:
             return
         async with self._lock:
             await self._resume(placement, None, ())
+
+    async def on_execution(self, heard: Any) -> None:
+        """An execution this plugin reported, as the book recorded it
+        (contract v23, ruling 15): a fill on no placement accepted, its
+        placement adopted where the placement's own delivery has not come
+        yet; or answered DK, said in the log, SnapTrade told nothing."""
+        execution: ops.Execution = heard.message.execution
+        async with self._lock:
+            held = self.watched.orders.get(execution.venue_order_id)
+            if held is None or not execution.venue_order_id:
+                return
+            if execution.state == ops.EXECUTION_STATE_DONT_KNOW:
+                log.info(
+                    "%s: %s answered DK (%s): SnapTrade takes no acknowledgement, so it is "
+                    "told nothing; a later fill is reported on no placement again",
+                    held.venue_order_id,
+                    execution.execution_id,
+                    ops.DkReason.Name(execution.dk_reason),
+                )
+            elif (
+                execution.state == ops.EXECUTION_STATE_MATCHED
+                and execution.placement_id
+                and not held.adopted
+            ):
+                await self._adopt(
+                    ops.Placement(
+                        placement_id=execution.placement_id,
+                        order_id=execution.order_id,
+                        connectivity_instance_id=self.me,
+                        venue_order_id=execution.venue_order_id,
+                        venue_account_code=held.code,
+                    )
+                )
+
+    async def _adopt(self, placement: ops.Placement) -> bool:
+        """A placement an accept created at filled for a venue-originated
+        order (contract v23, rulings 12 and 18): the order's later fills and
+        busts reported on it from here, and its commission charges kept
+        unplaced reported again on it (ruling 17). True where the placement
+        is one."""
+        held = self.watched.orders.get(placement.venue_order_id)
+        if held is None or not placement.venue_order_id:
+            return False
+        if held.adopted == placement.placement_id and placement.placement_id in self.working:
+            return True
+        held.adopted = placement.placement_id
+        self.watched.save()
+        self.working[placement.placement_id] = Worked(
+            placement_id=placement.placement_id,
+            order_id=placement.order_id,
+            code=placement.venue_account_code or held.code,
+            snaptrade_account_id=held.snaptrade_account_id,
+            instrument_id=held.instrument_id,
+            currency=held.currency or "USD",
+            brokerage_order_id=held.venue_order_id,
+            ticker=held.symbol,
+            filled=held.filled,
+            average=held.average,
+            fills=list(held.fills),
+            executions=dict(held.executions),
+            acknowledged=True,
+            adopted=True,
+        )
+        self.decided.add(placement.placement_id)
+        self.venue_orders.add(held.venue_order_id)
+        log.info(
+            "%s: the accept's placement %s names it; its later fills are reported there",
+            held.venue_order_id,
+            placement.placement_id,
+        )
+        for activity_id, charge in sorted(held.charges.items()):
+            await self._charge(placement.placement_id, activity_id, charge)
+        return True
 
     async def on_instruction(self, heard: Any) -> None:
         """A trading instruction set, changed or lifted."""
@@ -1111,27 +1368,217 @@ class Trader:
                 record = await self._successor(worked, record, by_client, raw)
             if record is not None:
                 await self._report_status(worked, record, raw)
-        # An order no placement names, which the brokerage took outside the
-        # platform: kept in SnapTrade's answer above, never recorded, never
-        # placed, and its fills not reported (venue-originated fills are
-        # v23's). One SnapTrade has not answered for is never taken for one.
-        if any(w.unanswered for w in mine):
+        # An order no placement names on a mapped account, placed in the
+        # broker's own app: its fills reported on no placement (contract
+        # v23). One SnapTrade has not answered for is never taken for one,
+        # nor is an order carrying the client order ID of a placement this
+        # plugin sent (a replace's new order among them).
+        if not mapped or any(w.unanswered for w in mine):
             return
+        # The first read of a mapped account's orders: what each had filled
+        # then is the account's history (contract v23).
+        first = self.watched.first(code, self._now())
         placed = {w.brokerage_order_id for w in self.working.values()} | self.venue_orders
         for oid, record in by_id.items():
+            client = str(record.get("client_order_id") or "")
             if (
-                oid
-                and oid not in placed
-                and oid not in self.outside
-                and record.get("client_order_id") is None
+                not oid
+                or oid in placed
+                or (client and (client in self._sent or client in self.working))
             ):
-                self.outside.add(oid)
+                continue
+            await self._originated(holder, record, raw, first)
+
+    # ── Venue-originated fills (contract v23) ───────────────────────────
+
+    async def _originated(
+        self, account: Account, record: Json, raw: ops.RawRecordRef, first: bool
+    ) -> None:
+        """A venue order no placement names, on a mapped account: each fill
+        since the plugin first read the account's orders reported on no
+        placement (rulings 1, 8 and 9); a fill taken back, busted. A venue
+        order with no fill is never reported, nor kept."""
+        oid = str(record.get("brokerage_order_id") or "")
+        filled = _number(record.get("filled_quantity")) or Decimal(0)
+        average = _number(record.get("execution_price"))
+        held = self.watched.orders.get(oid)
+        if held is None:
+            if not filled:
+                return
+            symbol = _dict(record.get("universal_symbol"))
+            held = Originated(
+                venue_order_id=oid,
+                code=account.code,
+                snaptrade_account_id=account.snaptrade_account_id,
+                client_order_id=str(record.get("client_order_id") or ""),
+                symbol=str(symbol.get("symbol") or ""),
+                side=SIDES_SAID.get(str(record.get("action") or ""), 0),
+            )
+            if first:
+                # Filled before the plugin read the account: its history,
+                # which the custodial statement holds; never reported.
+                held.filled, held.average = filled, average
                 log.info(
-                    "%s: SnapTrade lists an order no placement names (%s), placed at the "
-                    "brokerage outside the platform: kept as received, not reported",
-                    code,
+                    "%s: SnapTrade lists an order no placement names (%s), %s filled before "
+                    "this plugin first read the account: its history, not reported",
+                    account.code,
+                    oid,
+                    filled,
+                )
+            self.watched.orders[oid] = held
+            self.watched.save()
+        if held.adopted:
+            return
+        if filled < held.filled:
+            await self._originated_busts(held, filled, raw)
+            return
+        if filled == held.filled or average is None:
+            return
+        moment = _moment(record.get("time_executed")) or _moment(record.get("time_updated"))
+        moment = moment or self._now()
+        if not held.side:
+            if oid not in self.history:
+                self.history.add(oid)
+                log.warning(
+                    "%s: SnapTrade's action %r on %s names no side of a security: its fills "
+                    "are not reported",
+                    account.code,
+                    record.get("action"),
                     oid,
                 )
+            return
+        if not held.instrument_id and not await self._originated_instrument(
+            held, record, moment
+        ):
+            return
+        traded = trade_date_of(record, moment)
+        settles = await self._plugin.compute_date(
+            settlement=ops.SettlementDateInputs(
+                instrument_id=held.instrument_id, trade_date=traded.isoformat()
+            ),
+            as_of_ns=_ns(moment),
+        )
+        computed = settles.outcome == ops.DATE_OUTCOME_COMPUTED and bool(settles.date)
+        stated = (
+            ""
+            if computed
+            else await self._stated_settlement(held.snaptrade_account_id, oid, traded)
+        )
+        if not computed and not stated:
+            # Never sent with a guessed date: asked again on the next poll.
+            return
+        price, rounded = fill_price(held.filled, held.average, filled, average)
+        if rounded:
+            log.info("%s: a fill's price rounded to %s places: %s", oid, PRICE_PLACES, price)
+        fill = execution_id(oid, filled)
+        grown = filled - held.filled
+        done = await self._plugin.report_execution(
+            venue_account_code=held.code,
+            instrument_id=held.instrument_id,
+            side=held.side,
+            venue_order_id=oid,
+            venue_client_order_id=held.client_order_id,
+            venue_execution_id=fill,
+            kind=ops.EXECUTION_KIND_INFERRED,
+            source=ops.EXECUTION_SOURCE_PRIMARY,
+            quantity=grown,
+            price=meridian.Money(price, held.currency),
+            trade_time_ns=_ns(moment),
+            trade_date=traded.isoformat(),
+            finality=meridian.Finality(level=ops.FINALITY_LEVEL_FINAL, at_ns=_ns(moment)),
+            settlement_date=stated,
+            computed_settlement_date=settles.date if computed else "",
+            settlement_date_basis=basis_of(settles.basis) if computed else None,
+            raw_record=raw,
+            idempotency_key=f"fill:{fill}",
+        )
+        if done.HasField("execution") and done.execution.execution_id:
+            held.executions[fill] = done.execution.execution_id
+        held.fills.append((fill, filled, traded.isoformat()))
+        held.filled, held.average = filled, average
+        held.charge_polls = 0
+        self.watched.save()
+        log.info(
+            "%s: a fill of %s on no placement (%s), placed in the broker's own app",
+            held.code,
+            grown,
+            oid,
+        )
+
+    async def _originated_instrument(
+        self, held: Originated, record: Json, moment: datetime
+    ) -> bool:
+        """The deployment's record SnapTrade's symbol for a venue-originated
+        order names, by the fill's time (W3.1), and the currency its price is
+        in: SnapTrade's for the listing, else the record's. Where the symbol
+        names none, it is reported missing, once, and the fill waits."""
+        symbol = _dict(record.get("universal_symbol"))
+        identifiers = []
+        figi = str(symbol.get("figi_code") or "")
+        if figi:
+            identifiers.append(meridian.Identifier(scheme="figi", value=figi))
+        if held.symbol:
+            identifiers.append(
+                meridian.Identifier(scheme="symbol", value=held.symbol, source=SOURCE)
+            )
+        if not identifiers:
+            return False
+        found = await self._plugin.resolve_identifier(
+            identifiers=identifiers, as_of_ns=_ns(moment)
+        )
+        if not (found.found and found.instrument_id):
+            if not held.missing:
+                held.missing = True
+                await self._plugin.report_missing_instrument(
+                    source=SOURCE,
+                    identifiers=identifiers,
+                    as_of_ns=_ns(moment),
+                    reason=found.miss_reason or ops.MISS_REASON_NOT_FOUND,
+                    observed_at_ns=_ns(self._now()),
+                )
+            return False
+        stated = str(_dict(symbol.get("currency")).get("code") or "")
+        if not stated:
+            listed = await self._plugin.resolve_instrument(instrument_id=found.instrument_id)
+            stated = listed.instrument.currency if listed.found else ""
+        if not stated:
+            return False
+        held.instrument_id, held.currency = str(found.instrument_id), stated
+        return True
+
+    async def _originated_busts(
+        self, held: Originated, filled: Decimal, raw: ops.RawRecordRef
+    ) -> None:
+        """Each fill on no placement beyond what SnapTrade now states filled,
+        busted: the fill closed with nothing to answer (ruling 18)."""
+        for fill, cumulative, traded in sorted(held.fills, key=lambda f: f[1], reverse=True):
+            if cumulative <= filled:
+                break
+            busted = held.executions.get(fill, "")
+            if busted:
+                await self._plugin.report_execution(
+                    venue_account_code=held.code,
+                    instrument_id=held.instrument_id,
+                    side=held.side,
+                    venue_order_id=held.venue_order_id,
+                    venue_client_order_id=held.client_order_id,
+                    venue_execution_id=bust_id(fill),
+                    kind=ops.EXECUTION_KIND_INFERRED,
+                    source=ops.EXECUTION_SOURCE_PRIMARY,
+                    quantity=Decimal(0),
+                    price=meridian.Money(held.average or Decimal(0), held.currency),
+                    trade_date=traded,
+                    supersedes=busted,
+                    raw_record=raw,
+                    idempotency_key=f"bust:{fill}",
+                )
+            else:
+                log.warning("%s: no execution in the book for %s to bust", held.code, fill)
+            held.fills.remove((fill, cumulative, traded))
+        held.filled = max([c for _, c, _ in held.fills], default=filled)
+        if not held.filled:
+            held.average = None
+        self.watched.save()
 
     async def _successor(
         self, worked: Worked, record: Json, by_client: dict[str, Json], raw: ops.RawRecordRef
@@ -1159,6 +1606,14 @@ class Trader:
     async def _report_status(self, worked: Worked, record: Json, raw: ops.RawRecordRef) -> None:
         """What SnapTrade's record of the order says now, as facts."""
         status = str(record.get("status") or "")
+        if worked.adopted:
+            # The accept's placement, created at filled (contract v23): its
+            # order's later fills and busts alone; how the order ends at the
+            # venue is no fact of the placement's.
+            await self._fills(worked, record, raw)
+            if status in MAPPED - WORKING and not worked.ended:
+                worked.ended = "filled"
+            return
         if status not in MAPPED:
             if worked.unknown != status:
                 worked.unknown = status
@@ -1260,7 +1715,13 @@ class Trader:
             as_of_ns=_ns(moment),
         )
         computed = settles.outcome == ops.DATE_OUTCOME_COMPUTED and bool(settles.date)
-        stated = "" if computed else await self._stated_settlement(worked, traded)
+        stated = (
+            ""
+            if computed
+            else await self._stated_settlement(
+                worked.snaptrade_account_id, worked.brokerage_order_id, traded
+            )
+        )
         if not computed and not stated:
             # Never sent with a guessed date: asked again on the next poll,
             # said once.
@@ -1277,6 +1738,7 @@ class Trader:
         done = await self._plugin.report_execution(
             placement_id=worked.placement_id,
             venue_account_code=worked.code,
+            venue_order_id=worked.brokerage_order_id,
             venue_execution_id=fill,
             kind=ops.EXECUTION_KIND_INFERRED,
             source=ops.EXECUTION_SOURCE_PRIMARY,
@@ -1295,6 +1757,7 @@ class Trader:
             worked.executions[fill] = done.execution.execution_id
         worked.fills.append((fill, filled, traded.isoformat()))
         worked.filled, worked.average = filled, average
+        self._kept_adopted(worked)
 
     async def _symbol_filled(self, worked: Worked, record: Json, moment: datetime) -> None:
         """SnapTrade's symbol on a fill, where it is not the ticker placed:
@@ -1327,7 +1790,9 @@ class Trader:
             observed_at_ns=_ns(self._now()),
         )
 
-    async def _stated_settlement(self, worked: Worked, traded: date) -> str:
+    async def _stated_settlement(
+        self, snaptrade_account_id: str, brokerage_order_id: str, traded: date
+    ) -> str:
         """The settlement date SnapTrade states for the order's fill, where the
         date read answers none: its `BUY` or `SELL` activity naming the order's
         brokerage ID as its external reference, the one traded that day first;
@@ -1337,7 +1802,7 @@ class Trader:
             return ""
         try:
             activities = await venue.activities(
-                worked.snaptrade_account_id,
+                snaptrade_account_id,
                 traded - timedelta(days=2),
                 traded + timedelta(days=2),
             )
@@ -1347,7 +1812,7 @@ class Trader:
             activity
             for activity in activities
             if str(activity.get("type") or "") in ("BUY", "SELL")
-            and str(activity.get("external_reference_id") or "") == worked.brokerage_order_id
+            and str(activity.get("external_reference_id") or "") == brokerage_order_id
             and str(activity.get("settlement_date") or "")
         ]
         named.sort(key=lambda a: str(a.get("trade_date") or "")[:10] != traded.isoformat())
@@ -1367,6 +1832,7 @@ class Trader:
             await self._plugin.report_execution(
                 placement_id=worked.placement_id,
                 venue_account_code=worked.code,
+                venue_order_id=worked.brokerage_order_id,
                 venue_execution_id=bust_id(fill),
                 kind=ops.EXECUTION_KIND_INFERRED,
                 source=ops.EXECUTION_SOURCE_PRIMARY,
@@ -1382,6 +1848,17 @@ class Trader:
         worked.carried = min(worked.carried, worked.filled)
         if worked.filled == worked.carried:
             worked.average = None
+        self._kept_adopted(worked)
+
+    def _kept_adopted(self, worked: Worked) -> None:
+        """An accept's placement's fills kept with its venue order in
+        storage (contract v23), so a restart works it on from them."""
+        held = self.watched.orders.get(worked.brokerage_order_id) if worked.adopted else None
+        if held is None:
+            return
+        held.filled, held.average = worked.filled, worked.average
+        held.fills, held.executions = list(worked.fills), dict(worked.executions)
+        self.watched.save()
 
     async def _execution_in_book(self, worked: Worked, fill: str) -> str:
         listed = await self._plugin.list_orders()
@@ -1394,55 +1871,115 @@ class Trader:
         return ""
 
     async def _charges(self, venue: Venue) -> None:
-        """A cancel's fee on a placement that ended unfilled (above)."""
-        ended = [
-            w
-            for w in self.working.values()
-            if w.ended in ("cancelled", "expired", "rejected")
-            and w.filled == 0
-            and w.charge_polls < CHARGE_POLLS
+        """The charges SnapTrade's activities state (above): a cancel's fee on
+        a placement that ended unfilled, and from contract v23 the commission
+        on a trade, on its placement or, for a venue-originated order, on no
+        placement. Each order is looked for over CHARGE_POLLS polls, after
+        its placement ended or its last fill on no placement; one read of an
+        account's activities a poll serves every order of it."""
+        ended = [w for w in self.working.values() if w.ended and w.charge_polls < CHARGE_POLLS]
+        originated = [
+            o
+            for o in self.watched.orders.values()
+            if o.fills and not o.adopted and o.charge_polls < CHARGE_POLLS
         ]
+        accounts = sorted(
+            {w.snaptrade_account_id for w in ended}
+            | {o.snaptrade_account_id for o in originated}
+        )
         today = self._now().date()
-        for worked in ended:
-            worked.charge_polls += 1
+        for each in ended:
+            each.charge_polls += 1
+        for one in originated:
+            one.charge_polls += 1
+        for snaptrade_account_id in accounts:
             try:
                 activities = await venue.activities(
-                    worked.snaptrade_account_id, today - timedelta(days=7), today
+                    snaptrade_account_id, today - timedelta(days=7), today
                 )
             except VenueError:
                 continue
+            placed = {
+                w.brokerage_order_id: w
+                for w in ended
+                if w.snaptrade_account_id == snaptrade_account_id and w.brokerage_order_id
+            }
+            unplaced = {
+                o.venue_order_id: o
+                for o in originated
+                if o.snaptrade_account_id == snaptrade_account_id
+            }
             for activity in activities:
-                activity_id = str(activity.get("id") or "")
-                if (
-                    str(activity.get("type") or "") != "FEE"
-                    or str(activity.get("external_reference_id") or "")
-                    != worked.brokerage_order_id
-                    or activity_id in worked.charged
-                ):
-                    continue
-                amount = _number(activity.get("amount"))
-                currency = _dict(activity.get("currency")).get("code") or worked.currency
-                if amount is None:
-                    continue
-                account = Account(worked.code, worked.snaptrade_account_id, {}, True, "")
-                raw = self._keep(
-                    account, [trading_call(ACTIVITIES, activity, activity_id)], "activities"
-                )
-                worked.charged.add(activity_id)
-                traded = str(activity.get("trade_date") or "")[:10]
-                settles = str(activity.get("settlement_date") or "")[:10]
-                await self._plugin.report_charge(
-                    placement_id=worked.placement_id,
-                    fee=meridian.Fee(
-                        kind=ops.FEE_KIND_CANCEL
-                        if worked.ended == "cancelled"
-                        else ops.FEE_KIND_EXCHANGE,
-                        amount=meridian.Money(abs(amount), str(currency)),
-                    ),
-                    trade_date=traded,
-                    settlement_date=settles,
-                    raw_record=raw,
-                )
+                await self._charged_by(activity, placed, unplaced)
+
+    async def _charged_by(
+        self, activity: Json, placed: dict[str, Worked], unplaced: dict[str, Originated]
+    ) -> None:
+        """One activity, as the charge it states, if any: a `FEE` naming an
+        order of a placement that ended unfilled (kind cancel where it was
+        cancelled); or the `fee` of a `BUY` or `SELL` naming an order, its
+        commission (contract v23)."""
+        activity_id = str(activity.get("id") or "")
+        kind = str(activity.get("type") or "")
+        named = str(activity.get("external_reference_id") or "")
+        if not activity_id or not named:
+            return
+        worked, originated = placed.get(named), unplaced.get(named)
+        fee: int
+        if kind == "FEE":
+            if worked is None or worked.filled != 0 or worked.ended == "filled":
+                return
+            amount = _number(activity.get("amount"))
+            fee = ops.FEE_KIND_CANCEL if worked.ended == "cancelled" else ops.FEE_KIND_EXCHANGE
+        elif kind in ("BUY", "SELL"):
+            amount = _number(activity.get("fee"))
+            fee = ops.FEE_KIND_COMMISSION
+        else:
+            return
+        if amount is None or amount == 0 or (worked is None and originated is None):
+            return
+        holder = worked or originated
+        assert holder is not None
+        currency = str(_dict(activity.get("currency")).get("code") or holder.currency)
+        target = worked.placement_id if worked is not None else ""
+        if Charged.key(activity_id, target) in self._charged:
+            return
+        code = worked.code if worked is not None else (originated.code if originated else "")
+        account = Account(code, holder.snaptrade_account_id, {}, True, "")
+        raw = self._keep(
+            account, [trading_call(ACTIVITIES, activity, activity_id)], "activities"
+        )
+        charge: Json = {
+            "kind": ops.FeeKind.Name(fee),
+            "amount": str(abs(amount)),
+            "currency": currency,
+            "trade_date": str(activity.get("trade_date") or "")[:10],
+            "settlement_date": str(activity.get("settlement_date") or "")[:10],
+            "raw": raw.key,
+        }
+        if originated is not None and worked is None:
+            # Kept unplaced until an accept's placement names the order, and
+            # sent again on it then (ruling 17).
+            originated.charges[activity_id] = charge
+            self.watched.save()
+        await self._charge(target, activity_id, charge)
+
+    async def _charge(self, placement_id: str, activity_id: str, charge: Json) -> None:
+        """A charge sent on a placement, or on none, once (`Charged`)."""
+        key = Charged.key(activity_id, placement_id)
+        if key in self._charged:
+            return
+        self._charged.note(key)
+        await self._plugin.report_charge(
+            placement_id=placement_id,
+            fee=meridian.Fee(
+                kind=str(charge["kind"]),
+                amount=meridian.Money(Decimal(str(charge["amount"])), str(charge["currency"])),
+            ),
+            trade_date=str(charge.get("trade_date") or ""),
+            settlement_date=str(charge.get("settlement_date") or ""),
+            raw_record=self._plugin.raw_record(str(charge["raw"])),
+        )
 
     # ── Accounts and the catalogue ──────────────────────────────────────
 
@@ -1515,6 +2052,10 @@ class Trader:
             await self._plugin.report_venue_catalogue(
                 catalogue=meridian.VenueCatalogue(
                     venue_account_code=code,
+                    # SnapTrade takes no ExecutionAcknowledgement (BN) and no
+                    # DontKnowTrade (Q) (contract v23): an accept or a DK
+                    # tells it nothing, and the ems says so before a DK.
+                    execution_acknowledgement=ops.EXECUTION_ACKNOWLEDGEMENT_NONE,
                     order_types=[
                         meridian.VenueOrderType(
                             order_type=FROM_ORDER_TYPE[each],
@@ -1559,6 +2100,7 @@ class Trader:
             self._plugin.receive(
                 placement_updated=self.on_placement,
                 trading_instruction_changed=self.on_instruction,
+                execution_recorded=self.on_execution,
                 seed=False,
             )
         )
@@ -1589,3 +2131,13 @@ def basis_of(basis: ops.DateBasis) -> meridian.DateBasis:
 def sent_file(raw: RawStore | None) -> Path | None:
     """Where the placements sent are noted: beside the raw records."""
     return raw.root.parent / "trading" / "sent.json" if raw is not None else None
+
+
+def originated_file(raw: RawStore | None) -> Path | None:
+    """Where the venue-originated orders are noted (contract v23)."""
+    return raw.root.parent / "trading" / "originated.json" if raw is not None else None
+
+
+def charged_file(raw: RawStore | None) -> Path | None:
+    """Where the charges reported are noted (contract v23)."""
+    return raw.root.parent / "trading" / "charged.json" if raw is not None else None

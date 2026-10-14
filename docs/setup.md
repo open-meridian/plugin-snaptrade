@@ -101,6 +101,15 @@ recorded as that instrument, naming who linked it and when, beside the
 activity as it first arrived, which is kept. Changing the row re-resolves
 them again.
 
+### Account currency
+
+**Use it when** SnapTrade states no currency for an account's positions. A
+row is the **account** (leave it blank for every linked account) and its
+**currency** as an ISO code, such as USD; a row naming the account comes
+first. From the next read, such a position is in that currency, naming who
+set it. Without a row, it is taken to be in the account's only cash
+currency, or US dollars, and the statement says it was derived.
+
 ### Cash links
 
 **Use it when** a custodian holds cash as a position SnapTrade does not mark
@@ -129,7 +138,10 @@ takes effect at once.
 
 Then your execution plugin's admin maps each account the desk trades to the
 code this plugin names it by: the external account shown on Account links
-(for example `ALPACA:SYN-ALP-1001` in sample data).
+(for example `ALPACA:SYN-ALP-1001` in sample data). From then on, an order
+placed in the broker's own app on that account has its fills reported for
+the execution plugin to accept or answer DK; what the account had filled
+before is its history, which the statement holds, and is not reported.
 
 ## Agents
 

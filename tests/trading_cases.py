@@ -24,7 +24,7 @@ from snaptrade import synthetic
 from snaptrade.raw import RawStore
 from snaptrade.synthetic import SyntheticVenue
 from snaptrade.synthetic_orders import SyntheticTrading
-from snaptrade.trading import Sent, Trader
+from snaptrade.trading import Charged, Sent, Trader, Watched
 
 from conftest import NOW, clock
 
@@ -150,9 +150,13 @@ class Rig:
         ticker: str = "AAPL",
         sent: Sent | None = None,
         mapped: tuple[str, ...] = (ALPACA_CODE,),
+        watched: Path | None = None,
     ) -> None:
         self.recorder = recorder
         self.sent = sent
+        # Where the venue-originated orders and the charges are noted, kept
+        # across a restart (`make`) as the plugin's storage keeps them.
+        self.watched = watched
         self.scope = scope(*mapped)
         self.trading = SyntheticTrading(clock(NOW))
         self.trading.enable_trading(synthetic.ALPACA)
@@ -179,6 +183,8 @@ class Rig:
             synthetic=lambda: True,
             sent=self.sent,
             scope=lambda: self.scope,
+            watched=Watched(self.watched / "originated.json" if self.watched else None),
+            charged=Charged(self.watched / "charged.json" if self.watched else None),
         )
 
     def _listed(self, _: Any) -> ops.ListOrdersResult:
@@ -196,8 +202,14 @@ class Rig:
             execution_id=f"EXE-{self.minted}",
             placement_id=params.placement_id,
             venue_execution_id=params.venue_execution_id,
+            venue_order_id=params.venue_order_id,
             quantity=params.quantity,
             supersedes=params.supersedes,
+            state=(
+                ops.EXECUTION_STATE_MATCHED
+                if params.placement_id
+                else ops.EXECUTION_STATE_UNMATCHED
+            ),
         )
         return ops.ReportExecutionResult(execution=held)
 
@@ -246,4 +258,53 @@ async def placed_and_filled(recorder: Recorder) -> None:
     rig.holds(held)
     await rig.hear(held)
     await rig.trader.poll()
+    await rig.trader.poll()
+
+
+#: The placement an accept creates at filled for the order placed in the
+#: broker's own app (contract v23, ruling 12).
+ACCEPTED = "PLC-01JAE0000000000000000ACPT"
+
+
+async def originated(recorder: Recorder, rig: Rig | None = None) -> Rig:
+    """The order placed in the broker's own app, SYN-OUT-0001, on the mapped
+    Alpaca account: unfilled on the plugin's first read of the account's
+    orders, then its first fill, 1, reported on no placement, with the
+    commission SnapTrade states on it kept unplaced."""
+    rig = rig or Rig(recorder)
+    await rig.trader.start()
+    await rig.trader.poll()
+    await rig.trader.poll()
+    return rig
+
+
+async def accept(rig: Rig, execution_id: str = "EXE-1", quantity: str = "1") -> None:
+    """The ems accepts the fill to a new order: the book's placement at
+    filled naming the venue order, heard; and the fill matched on it."""
+    created = placement(
+        ACCEPTED,
+        quantity=quantity,
+        state=ops.PLACEMENT_STATE_FILLED,
+        venue_order_id="SYN-OUT-0001",
+    )
+    rig.holds(created)
+    await rig.hear(created)
+    matched = ops.Execution(
+        execution_id=execution_id,
+        order_id=created.order_id,
+        placement_id=ACCEPTED,
+        venue_order_id="SYN-OUT-0001",
+        state=ops.EXECUTION_STATE_MATCHED,
+    )
+    rig.recorder.answer(
+        "ExecutionRecorded", lambda _: ops.ExecutionRecordedEvent(execution=matched)
+    )
+    await rig.recorder.receive(execution_recorded=rig.trader.on_execution)
+
+
+async def accepted_then_filled(recorder: Recorder) -> None:
+    """Its first fill accepted, and the order's later fill, 2, reported on
+    the accept's placement."""
+    rig = await originated(recorder)
+    await accept(rig)
     await rig.trader.poll()

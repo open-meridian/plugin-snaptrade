@@ -1499,7 +1499,12 @@ def _holding_row(view: AccountView, holding: Holding) -> dict[str, str]:
     if holding.exchange_mic:
         others.append(f"on {holding.exchange_mic}")
     notes = []
-    if holding.currency_assumed:
+    if holding.currency_assumed and holding.currency_supplied_by:
+        notes.append(
+            f"SnapTrade stated no currency; {holding.currency} is the account's currency, "
+            f"supplied by {holding.currency_supplied_by}"
+        )
+    elif holding.currency_assumed:
         notes.append(
             f"SnapTrade stated no currency; {holding.currency} is derived: the account's "
             "only cash currency, or US dollars"
