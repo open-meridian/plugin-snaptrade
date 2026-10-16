@@ -48,7 +48,13 @@ ROLES := $(shell sed -n 's/^roles *= *\[\(.*\)\]/\1/p' pyproject.toml | tr -d ' 
 # The harness's one plugin, this one, as instance snaptrade, given the
 # harness's archive beside its storage (contract v16): the list `harness.py
 # compose` writes the plugins' half of the deployment from.
-PLUGINS := [{"instance": "snaptrade", "image": "$(IMAGE)", "roles": [$(ROLES)], "archive": true}, {"instance": "desk", "image": "$(IMAGE)", "roles": ["portfolio", "oms", "ems", "reporting"]}]
+# The declaration [tool.meridian] names (contract v25): `make e2e` prints it
+# from the image under test, as `meridian plugin upload` reads it, and the
+# harness holds the plugin's registration to it (its README, `declaration`).
+# Each stand-in's the same, its directory mounted as it runs.
+DECLARATION_REF := $(shell sed -n 's/^declaration *= *"\(.*\)"/\1/p' pyproject.toml)
+DECLARE := docker run --rm --network none --entrypoint meridian-declaration
+PLUGINS := [{"instance": "snaptrade", "image": "$(IMAGE)", "roles": [$(ROLES)], "archive": true, "declaration": "declaration.json"}, {"instance": "desk", "image": "$(IMAGE)", "roles": ["portfolio", "oms", "ems", "reporting"], "declaration": "desk.json"}]
 # The plugin harness copied out of HARNESS_IMAGE, as its own project, with
 # the plugins it wrote and e2e/plugin.yaml's root for the plugin. Every
 # compose command gets the runtime, since compose reads every file each time.
@@ -176,8 +182,8 @@ image:
 	@docker run --rm --entrypoint python $(IMAGE) -c \
 		"import meridian, snaptrade.__main__, snaptrade.page, snaptrade_client" \
 		|| { echo "image FAILED: it does not import the SDK, SnapTrade's SDK and itself" >&2; exit 1; }
-	@[ -z "$$(docker run --rm --entrypoint sh $(IMAGE) -c 'ls -A /plugin')" ] \
-		|| { echo "image FAILED: /plugin holds files; only the installed package belongs" >&2; exit 1; }
+	@[ "$$(docker run --rm --entrypoint sh $(IMAGE) -c 'ls -A /plugin')" = "docs" ] \
+		|| { echo "image FAILED: /plugin holds files beyond docs/; only the installed package and its documentation belong" >&2; exit 1; }
 	@echo "image OK: $(IMAGE) on $(BASE), $$(docker image inspect -f '{{.Size}}' $(IMAGE) | awk '{printf "%.0f MB", $$1/1e6}')"
 
 # The plugin, in synthetic mode and with no key, on the plugin harness
@@ -236,6 +242,10 @@ e2e: image
 		&& docker cp "$$id:/harness" .e2e/harness >/dev/null \
 		&& docker rm "$$id" >/dev/null \
 		|| { echo "e2e FAILED: no plugin harness at /harness in $(HARNESS_IMAGE)" >&2; trap - EXIT; exit 1; }; \
+	$(DECLARE) $(IMAGE) $(DECLARATION_REF) >.e2e/harness/declaration.json 2>>.e2e/components.log \
+		|| { echo "e2e FAILED: meridian-declaration did not print $(DECLARATION_REF) (declaration.json)" >&2; exit 1; }; \
+	$(DECLARE) -v "$(CURDIR)/e2e":/e2e:ro -e PYTHONPATH=/e2e $(IMAGE) desk:DECLARATION >.e2e/harness/desk.json 2>>.e2e/components.log \
+		|| { echo "e2e FAILED: meridian-declaration did not print desk:DECLARATION (desk.json)" >&2; exit 1; }; \
 	printf '%s\n' '$(PLUGINS)' >.e2e/plugins.json; \
 	docker run --rm -i -v "$(CURDIR)/.e2e/harness":/harness:ro python:3.12-alpine \
 		python /harness/harness.py compose <.e2e/plugins.json >.e2e/harness/plugins.yaml 2>>.e2e/components.log \
