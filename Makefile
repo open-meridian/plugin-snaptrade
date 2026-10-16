@@ -38,9 +38,10 @@ CLI_CONTEXT := $(if $(MERIDIAN_BIN),--build-context cli=$(MERIDIAN_BIN),)
 # chooses, and with the SDK when a contract version changes. `make e2e
 # RUNTIME_IMAGE=...:latest HARNESS_IMAGE=...:latest` tries a newer core;
 # e2e-latest.yaml does that weekly.
-# Core 50d6f0a, contract v23, as published with chart 0.1.303.
-RUNTIME_IMAGE ?= ghcr.io/open-meridian/meridian-runtime:50d6f0a@sha256:31752d45e262b4e87978e486f5e3cdd201fe14970bf1e681bfb9241731d0a053
-HARNESS_IMAGE ?= ghcr.io/open-meridian/meridian-harness:50d6f0a@sha256:00c4818b8c67218ecbe237f97e97b78cad3801477520ebbae80fe29332de4115
+# PLACEHOLDER (v25): core v25's runtime and harness are not published yet; re-pin both
+# by tag and digest to what core's v25 merge publishes before this merges.
+RUNTIME_IMAGE ?= ghcr.io/open-meridian/meridian-runtime:CORE-V25-PLACEHOLDER
+HARNESS_IMAGE ?= ghcr.io/open-meridian/meridian-harness:CORE-V25-PLACEHOLDER
 # Its roles as pyproject.toml declares them (a JSON list's items), so the
 # harness launches it as `meridian plugin upload` would.
 ROLES := $(shell sed -n 's/^roles *= *\[\(.*\)\]/\1/p' pyproject.toml | tr -d ' ')
