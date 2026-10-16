@@ -3,7 +3,35 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
-## 0.17.0 (not released)
+## 0.18.0 (not released)
+
+Contract v25, on open-meridian 0.29.0 (meridian-design tasks/sdk-contract/
+plugins-are-shared-and-documented-contract; plans/a-plugin-carries-its-own-
+documentation).
+
+- **The whole declaration** (`declaration.py`): its settings, its interface
+  -- the pages with their levels, and the tools their typed routes make --
+  on a port fixed at 8000, that it reads external accounts, what it does not
+  carry, its storage, and its documentation. `__main__` connects with the
+  declaration alone, so what registers is what the version was uploaded
+  with. The raw record kinds moved to `kinds.py` and the names not carried
+  to `not_carried.py`, so the declaration can name the pages.
+- **Its documentation** (`docs/`): overview, setup, troubleshooting, terms
+  and pages, uploaded with each version and named by digest in its
+  declaration, linking the custody role's page for what every custody
+  plugin shares. `docs/README.md` stays the repository's index, not
+  uploaded.
+- **The pins**: open-meridian 0.29.0 and plugin-python:0.29.0, core v25's
+  runtime and harness, and `meridian` 0.1.46 in `check.yaml`, each a marked
+  placeholder until published.
+- **The suites**: custody's v24 case, a holding named by the brokerage's own
+  symbol alone, recorded unresolved; connectivity's give-up case not
+  presented, since no trade is given up at SnapTrade; the two cases every
+  suite holds answered by the SDK.
+- **`make e2e`** takes the harness down with `--profile runner`, so the
+  runner's volume goes too.
+
+## 0.17.0
 
 Contract v23, on open-meridian 0.27.0 (meridian-design tasks/sdk-contract/
 venue-originated-fills-and-the-lakes-outcomes-contract; plans/an-order-

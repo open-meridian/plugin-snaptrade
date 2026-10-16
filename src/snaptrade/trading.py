@@ -176,9 +176,9 @@ import meridian
 from meridian.operations import as_decimal
 from meridian.plugin.v1 import operations_pb2 as ops
 
-from .declaration import seen_in_order
 from .linking import failure
 from .normalise import SOURCE, external_account
+from .not_carried import seen_in_order
 from .raw import (
     ACTIVITIES,
     CANCEL,

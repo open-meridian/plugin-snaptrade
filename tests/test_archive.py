@@ -25,7 +25,8 @@ from meridian.testing import PageClient, caller_header
 from meridian.v1 import sidecar_pb2
 
 from snaptrade.archive import Keeper
-from snaptrade.declaration import DECLARATION, RESPONSES_KIND
+from snaptrade.declaration import DECLARATION
+from snaptrade.kinds import RESPONSES_KIND
 from snaptrade.linking import Links
 from snaptrade.page import RAW, RAW_ARCHIVE, RESTORE, hold, pages
 from snaptrade.raw import (

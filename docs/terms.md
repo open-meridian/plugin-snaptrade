@@ -2,9 +2,9 @@
 
 ## Who checks this plugin
 
-**Nobody but you.** This plugin is in your deployment's local registry,
-which is unsupervised: the platform checks nothing about it, and whoever
-installs it carries its risk. Naming it anywhere is not an endorsement. The
+Whoever installs it carries its risk. Wherever it is listed, the listing is
+not an endorsement of the plugin or of SnapTrade; the registry it came from
+says what, if anything, it checked. The
 [Platform Terms](https://open-meridian.com/terms) govern.
 
 ## SnapTrade's terms

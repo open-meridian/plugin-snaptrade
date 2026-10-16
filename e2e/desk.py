@@ -268,9 +268,13 @@ def serve(desk):
 
 async def main():
     roles = ["portfolio", "oms", "ems", "reporting"]
+    # Contract v25: the stand-in's interface in its declaration, which is what
+    # it registers.
     plugin = await meridian.connect(
-        interface=Interface(
-            PORT, "Desk", pages=[Page("/", "Desk", levels=["write", "admin"], roles=roles)]
+        declaration=meridian.Declaration(
+            interface=Interface(
+                PORT, "Desk", pages=[Page("/", "Desk", levels=["write", "admin"], roles=roles)]
+            )
         )
     )
     print(f"DESK registered as {plugin.identity.instance_id}", flush=True)

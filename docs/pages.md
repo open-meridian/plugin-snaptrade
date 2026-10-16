@@ -4,34 +4,23 @@ You open the plugin from the dashboard's home by the button for the level
 you hold on it: **Manage** (admin), **Open** (write) or **View** (read). Each
 page's head has a status dot: green when the last read succeeded, amber
 while one is under way, red when it failed or settings are missing, with why
-on hover or tap.
+on hover or tap. Manage shows no account's holdings, statements or
+activity: only connections, account identities and their links.
 
-## Under Manage: setting it up
+## Summary, Settings and the link tables
 
-Manage shows no account's holdings, statements or activity: only
-connections, account identities and their links.
+Drawn by the dashboard. **Summary**: the plugin's health, then three figures
+from each read -- **Connections** (marked when any needs attention, saying
+how many and why), **Accounts reached** and **Last read** -- and its raw
+records: for each kind, how many are in storage and in the archive, from
+when to when, and every move. **Settings**: the key, the timings, and each
+kind of record's window and what happens past it. **Plan-code links**,
+**Account currency** and **Cash links**: the three tables, each a tab of its
+own. See [Setup](setup.md).
 
-### Summary
+## Connections
 
-Drawn by the dashboard. The plugin's health, then three figures from each
-read: **Connections** (marked when any needs attention, saying how many and
-why), **Accounts reached**, and **Last read**; and its raw records: for each
-kind, how many are in storage and in the archive, from when to when, and
-every move.
-
-### Settings
-
-The dashboard's form for the key, the timings, and each kind of record's
-window and what happens past it. See [Setup](setup.md).
-
-### Plan-code links and Cash links
-
-The two link tables, each a tab of its own. See
-[Setup](setup.md#4-the-link-tables-only-if-you-need-them).
-
-### Connections
-
-Each brokerage connection: its health and what to do about it.
+Under Manage. Each brokerage connection: its health and what to do about it.
 
 - **Connect** connects a brokerage through SnapTrade's Connection Portal.
 - **Refresh**, in the card's header, reads SnapTrade now.
@@ -40,30 +29,28 @@ Each brokerage connection: its health and what to do about it.
   charge for each.
 - **Reconnect** opens the Connection Portal to sign in to the brokerage
   again.
+- **Enable trading**, for an admin of the plugin's connectivity role, on
+  each read-only connection ([Setup](setup.md), step 5).
 
 It also lists the SnapTrade users under the key.
 
-Under Manage, an admin of the plugin's connectivity role sees Connections
-too, with **Enable trading** on each read-only connection (Setup, step 5).
+## Account links
 
-### Account links
-
-Every account the connections reach, each with its name, brokerage, type,
-number and SnapTrade's ID, and its link. Search by any of them, filter to
-Unlinked, Linked or All, grouped by connection and paged. Link, create (a
-deployment admin), Unlink, or take the suggestions. See
-[Setup](setup.md#3-link-accounts).
+Under Manage. Every account the connections reach, each with its name,
+brokerage, type, number and SnapTrade's ID, and its link. Search by any of
+them, filter to Unlinked, Linked or All, grouped by connection and paged.
+Link, create (a deployment admin), Unlink, or take the suggestions. See
+[Setup](setup.md).
 
 One line says how many plan-code links and cash links are set, how long
 activity records stay in storage and what happens to them after.
 
-## Under Open and View: daily work
+## Statements
 
-Each page shows only the linked accounts you may read. Under Open, the head
-has **Refresh**, which reads SnapTrade now; under View, nothing on these
-pages changes anything. Somebody who may read no account here is told so.
-
-### Statements
+Under Open and View, the page a person returns to daily. Each page there
+shows only the linked accounts you may read; under Open, the head has
+**Refresh**, which reads SnapTrade now; under View, nothing changes
+anything. Somebody who may read no account here is told so.
 
 For each account: its sync state, how fresh its holdings and history are,
 its last statement, and its rows. Each row shows SnapTrade's average price
@@ -72,12 +59,12 @@ deposit, and whether SnapTrade marked it or a person listed it (naming
 them). An account whose statement was held back shows "Nothing recorded"
 and why (see [Troubleshooting](troubleshooting.md#statement-withheld)).
 
-### History
+## History
 
-Choose an account and dates (up to 366 days at a time; the last 30 by
-default) to see its activity as SnapTrade wrote it: type, dates, symbol,
-units, price, amount and currency. It says how far back SnapTrade's history
-of the account goes.
+Under Open and View. Choose an account and dates (up to 366 days at a time;
+the last 30 by default) to see its activity as SnapTrade wrote it: type,
+dates, symbol, units, price, amount and currency. It says how far back
+SnapTrade's history of the account goes.
 
 **Propose lots** reads the whole history and, for each position SnapTrade
 lists no lots for, proposes lots: one per purchase or reinvested dividend,
@@ -86,10 +73,10 @@ whole position. A position sold from, transferred in, or changed by a split
 gets none, and says why. Nothing is sent anywhere: you carry the lots into
 an opening balance, where you check them and answer for them.
 
-### Raw records
+## Raw records
 
-What SnapTrade answered, as received, one account at a time (choose it at
-the top). Three views:
+Under Open and View. What SnapTrade answered, as received, one account at a
+time (choose it at the top). Three views:
 
 - **Read**: the latest read, each call on one line; click a line to see
   SnapTrade's answer, formatted, or why it failed. **Download JSON** saves
@@ -99,8 +86,8 @@ the top). Three views:
 - **Archive**: what moved past its window, for every account you may read:
   a day of raw responses or a month of activity records each, archived,
   restored (readable until the date shown) or deleted. Under **Open**,
-  **Restore** brings an archived one back for seven days, and its reads
-  appear under Read and Kept reads; the restore is recorded in your name.
+  **Restore** brings an archived one back for seven days, recorded in your
+  name.
 
 Use it to see exactly what SnapTrade said when a figure looks wrong. A link
 to a record that moved says where it is, with Restore beside it.

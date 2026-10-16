@@ -228,7 +228,7 @@ e2e: image
 	@# `meridian plugin check` reads every source file under this directory,
 	@# and the harness's runner is not the plugin's.
 	@started=$$(date +%s); \
-	trap '$(E2E) down -v --remove-orphans >>.e2e/components.log 2>&1; rm -rf .e2e/harness' EXIT; \
+	trap '$(E2E) --profile runner down -v --remove-orphans >>.e2e/components.log 2>&1; rm -rf .e2e/harness' EXIT; \
 	fail() { grep -h '^harness .* FAILED' .e2e/runner.log 2>/dev/null | tail -1 >&2; \
 		echo "e2e FAILED: $$1; the components' logs are in .e2e/components.log, the runner's in .e2e/runner.log" >&2; \
 		$(E2E) logs --no-color >>.e2e/components.log 2>&1; exit 1; }; \
@@ -240,7 +240,7 @@ e2e: image
 	docker run --rm -i -v "$(CURDIR)/.e2e/harness":/harness:ro python:3.12-alpine \
 		python /harness/harness.py compose <.e2e/plugins.json >.e2e/harness/plugins.yaml 2>>.e2e/components.log \
 		|| { echo "e2e FAILED: the harness did not write its plugins from .e2e/plugins.json" >&2; exit 1; }; \
-	$(E2E) down -v --remove-orphans >>.e2e/components.log 2>&1; \
+	$(E2E) --profile runner down -v --remove-orphans >>.e2e/components.log 2>&1; \
 	$(E2E) up -d >>.e2e/components.log 2>&1 || fail "the harness did not start"; \
 	$(E2E_RUN) ready >>.e2e/runner.log 2>&1 || fail "the plugin never registered"; \
 	$(E2E_RUN) settings sample_data=true >>.e2e/runner.log 2>&1 || fail "sample data was not set"; \

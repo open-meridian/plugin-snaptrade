@@ -7,12 +7,13 @@ quantity that works or fills), and run through this plugin's own Trader
 (trading.py) against the runner's recorder, as a placement heard is. Only
 the sidecar is stood in for. SIMULATED ONLY: nothing reaches SnapTrade.
 
-Eight cases are not presented, each with why (`NOT_PRESENTED`), as the
+Nine cases are not presented, each with why (`NOT_PRESENTED`), as the
 suite lets a case marked `about` or `about_field` be: SnapTrade reads no
 calendar's days (it asks the date read for each fill's settlement date),
 offers no locate (so resolves no locate's symbol), states no fill's place of
 execution, places what its `ems` released whatever releases wait for, and
-from contract v23 rolls nothing (its trades settle). Every other case
+from contract v23 rolls nothing (its trades settle), and from v24 gives
+nothing up to a prime broker. Every other case
 passes: among them v23's venue-originated fills -- an order placed in the
 broker's own app (SYN-OUT-0001), its fills reported on no placement, a later
 one on the placement an accept created, and the commission SnapTrade states
@@ -26,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from meridian.plugin.v1 import operations_pb2 as ops
-from meridian.suites import Recorder, names, run, suite
+from meridian.suites import ANSWERED_BY_SDK, Recorder, names, run, suite
 
 from snaptrade import synthetic_orders
 from trading_cases import (
@@ -60,6 +61,10 @@ NOT_PRESENTED = {
     "hears-an-accounts-attributes-change": (
         "it places what its ems released; whether releases wait for compliance changes "
         "nothing it sends"
+    ),
+    "reports-a-give-up-rejected": (
+        "SnapTrade's brokerages execute and clear each order in the account that placed "
+        "it: no trade is given up to a prime broker, so none is rejected"
     ),
     "reports-a-value-date-roll": (
         "SnapTrade's brokerages settle each trade on its settlement date: none rolls a "
@@ -232,7 +237,10 @@ PRODUCERS: dict[str, Producer] = {
 
 
 def test_every_case_is_mapped_or_said_not_presented_with_why() -> None:
-    assert set(names("connectivity")) == set(PRODUCERS) | set(NOT_PRESENTED)
+    # Contract v24: the two cases every suite holds, which the SDK answers.
+    assert set(names("connectivity")) == set(PRODUCERS) | set(NOT_PRESENTED) | set(
+        ANSWERED_BY_SDK
+    )
     assert not set(PRODUCERS) & set(NOT_PRESENTED)
     held = {case.name: case.about or case.about_field for case in suite("connectivity").cases}
     assert all(held[name] for name in NOT_PRESENTED), "a required case is never skipped"
@@ -244,8 +252,9 @@ def test_the_connectivity_suite_passes() -> None:
     )
     assert report.passed, report.failures
     assert report.not_presented == NOT_PRESENTED
-    assert set(report.passed_cases) == set(PRODUCERS)
-    assert len(report.passed_cases) == 23
+    assert set(report.passed_cases) == set(PRODUCERS) | set(ANSWERED_BY_SDK)
+    assert report.answered_by_sdk == list(ANSWERED_BY_SDK)
+    assert len(report.passed_cases) == 25
 
 
 def test_a_plugin_sending_on_a_pause_fails_the_suite() -> None:

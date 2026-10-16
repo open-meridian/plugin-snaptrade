@@ -3,30 +3,30 @@
 The SnapTrade plugin brings in what your brokerage accounts hold, through
 [SnapTrade](https://snaptrade.com), a service that connects to many
 brokerages with one sign-in each. You connect a brokerage once; the plugin
-then reads its accounts every few minutes.
+then reads its accounts every few minutes, and can place your desk's orders
+in them.
 
-> **Not endorsed.** This plugin is in your deployment's local registry, which
-> is unsupervised: the platform checks nothing about it. Your firm carries its
-> own due diligence on the plugin and on SnapTrade. See [Terms](terms.md).
+It is a custody plugin: its first-use path, its common pages and its Summary
+figures are every custody plugin's, described once on
+[Using a custody plugin](https://open-meridian.dev/how-to/using-a-custody-plugin/).
+These sections cover what is SnapTrade's own.
 
-## Its role
+## Its two roles
 
-It holds two roles. **Custody**: it brings in the custodian's view of an
-account. It does not keep your own book or value your positions. Your
-book is kept by an operations plugin, such as the sample operations plugin,
-which compares the two and shows each difference.
+**Custody**: it brings in the custodian's view of an account. It does not
+keep your own book or value your positions. Your book is kept by an
+operations plugin, which compares the two and shows each difference.
 
-**Connectivity**, from version 0.16.0: it places the orders your execution
-plugin (an `ems`) sends it at SnapTrade, in the brokerage account the order
-names, and reports what SnapTrade did with each: accepted, filled, cancelled,
-rejected and why. It trades only on a connection where an admin enabled
-trading (see [Setup](setup.md)); every connection starts read-only. It sends
-nothing new while trading is paused or stopped, and a stop cancels what it is
-working at SnapTrade at once. From version 0.17.0 it also reports the fills
-of orders placed in the broker's own app, on a mapped account, for your
-execution plugin to accept (to an order) or answer DK; SnapTrade is told
-nothing of either answer, since it takes none. In sample data it trades with
-a simulated brokerage, never SnapTrade.
+**Connectivity**: it places the orders your execution plugin (an `ems`)
+sends it at SnapTrade, in the brokerage account the order names, and reports
+what SnapTrade did with each: accepted, filled, cancelled, rejected and why.
+It trades only on a connection where an admin enabled trading
+([Setup](setup.md)); every connection starts read-only. It sends nothing new
+while trading is paused or stopped, and a stop cancels what it is working at
+SnapTrade at once. It also reports the fills of orders placed in the
+broker's own app, on a mapped account, for your execution plugin to accept
+to an order or answer DK; SnapTrade is told nothing of either answer, since
+it takes none.
 
 ## What it reads
 
@@ -52,7 +52,9 @@ Only for an account you have linked to one of your deployment's accounts:
 - **each activity** once, as SnapTrade states it.
 
 An account nobody has linked is listed for linking, and nothing of it is
-recorded.
+recorded. A holding SnapTrade names only by the brokerage's own symbol, which
+the platform does not know, is recorded unresolved, with what SnapTrade
+said, never guessed.
 
 ## What it never makes up
 
@@ -70,14 +72,14 @@ recorded.
 What SnapTrade answered on each read, so you can see it on the Raw records
 tab, in storage your deployment gives this plugin alone. Credentials are
 removed before anything is written. Each read's answers stay in storage 30
-days by default, and each activity's own record seven years; after that they
-move to your deployment's archive, where you can restore them, or stay, or
-are deleted, as the plugin's admin chooses. Every move is recorded. None of
-it leaves your deployment.
+days by default, each activity's own record and each trading exchange seven
+years; after that they move to your deployment's archive, where you can
+restore them, or stay, or are deleted, as the plugin's admin chooses. Every
+move is recorded. None of it leaves your deployment.
 
 ## Who uses it
 
 - **An admin of the plugin** sets it up under **Manage**: the key, the
   connections, the account links. Manage shows no account's holdings.
 - **People granted read or write on accounts** see those accounts'
-  statements, history and raw responses under **View** or **Open**.
+  statements, history and raw records under **View** or **Open**.

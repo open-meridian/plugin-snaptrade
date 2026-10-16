@@ -667,6 +667,12 @@ KNOWN_PARAMETERS = {
         "subjects",
         # Known, and not heard (v23): a market's outcomes go to the readers.
         "outcomes_recorded",
+        # Known, and not heard (v24): a booking and an alert go to the roles
+        # that book and review them; a merged instrument's replacement is
+        # heard by a plugin keeping instrument IDs, and this one keeps none.
+        "booking_updated",
+        "alert_changed",
+        "replace_merged_instrument",
     },
     # Known, and not used (v8): the book of record is an operations plugin's
     # to write and five other roles' to read (operations, portfolio,
@@ -694,6 +700,9 @@ KNOWN_PARAMETERS = {
         "idempotency_key",
         "position",
         "street",
+        # Known, and not used (v25): an operations plugin's break names what
+        # did not resolve; custody records no break.
+        "unresolved_identifiers",
     },
     "record_account_figures": {
         "account_id",
@@ -786,7 +795,8 @@ KNOWN_PARAMETERS = {
         "valid_until_ns",
     },
     "list_datasets": set(),
-    "resolve_venue": {"as_of_ns", "identifiers"},
+    # v25: a venue resolved by its ID beside its identifiers (D9).
+    "resolve_venue": {"as_of_ns", "identifiers", "venue_id"},
     "report_missing_venue": {"as_of_ns", "identifiers", "observed_at_ns", "reason", "source"},
     # Known, and not used (v19, v20): trades and quotes are a data plugin's to
     # record and the reading roles' to read; custody records the street.
@@ -957,6 +967,8 @@ KNOWN_PARAMETERS = {
     },
     "propose_order": {
         "account_id",
+        # v24: a block's member orders, the oms's to name.
+        "block_member_order_ids",
         "acting_for",
         "allocation_instruction",
         "axe_counterparty_id",
@@ -1036,6 +1048,54 @@ KNOWN_PARAMETERS = {
     },
     "record_outcomes": {"acting_for", "outcomes"},
     "list_outcomes": {"after_watermark", "as_of_ns", "subjects"},
+    # Known, and not used (v24): booking, allocation, sleeves and alerts are
+    # the book's and the oms's, operations' and compliance's; a give-up is a
+    # prime broker's or a confirmation service's, and SnapTrade is neither;
+    # the replacements and templates are read by plugins keeping instrument
+    # IDs or minting from a template, and this one does neither.
+    "book_order": {"acting_for", "allocations", "execution_ids", "hand_off", "order_id"},
+    "correct_booking": {
+        "acting_for",
+        "allocations",
+        "booking_id",
+        "effective_date",
+        "kind",
+        "reason",
+    },
+    "hand_off_booking": {"acting_for", "booking_id", "close"},
+    "list_bookings": {"account_id", "cursor", "page_size", "since", "state"},
+    "set_allocation_instruction": {
+        "acting_for",
+        "allocation_instruction",
+        "order_id",
+        "reason",
+    },
+    "record_sleeve_cross": {"acting_for", "sleeve_cross"},
+    "raise_alert": {"account_id", "acting_for", "kind", "reason", "subject"},
+    "acknowledge_alert": {"acting_for", "alert_id", "reason"},
+    "list_alerts": {"account_id", "cursor", "kind", "page_size", "since", "state"},
+    "report_give_up": {
+        "acting_for",
+        "allocation_id",
+        "answer",
+        "execution_id",
+        "prime_reference",
+        "raw_record",
+        "reason",
+    },
+    "list_replacements": {"after_sequence"},
+    "list_templates": {"asset_class"},
+    "read_template": {"template_id", "template_version"},
+    "offer_template_fields": {
+        "acting_for",
+        "fields",
+        "instrument_id",
+        "template_id",
+        "template_version",
+    },
+    # Known, and not used: whether orders may name a local record, the
+    # oms's and the ems's to weigh; from v25 connectivity is not granted it.
+    "read_local_record_orders": set(),
 }
 
 

@@ -1,21 +1,21 @@
 # The SnapTrade plugin's documentation
 
 What this plugin's vendor says about it, for the people who set it up and use
-it. Written for version 0.16.0.
+it. Each version ships these sections with its upload, named by digest in its
+declaration, and a deployment shows them on the plugin's **Documentation**
+tab, beside a Reference drawn from what the version declares.
 
-| Page | For |
+| Section | For |
 |---|---|
-| [Overview](overview.md) | What it is for, and what it reads and records |
-| [Setup](setup.md) | The key, connecting a brokerage, linking accounts, the two link tables |
+| [Overview](overview.md) | What it is for, what it reads and records, and what it never makes up |
+| [Setup](setup.md) | The key, connecting a brokerage, linking accounts, the link tables, trading |
 | [Pages](pages.md) | Each page and tab, and what you do there |
 | [Troubleshooting](troubleshooting.md) | What each state means, and what to do |
 | [Terms](terms.md) | SnapTrade's terms, your due diligence, the licence |
 
-**A draft, in plain Markdown.** The format a plugin ships its documentation
-in is not defined yet; when it is, these pages move into it. Until then they
-are plain files, one topic each.
+This file is the repository's own index: it is not uploaded.
 
-**No reference here.** The list of this plugin's roles, settings, tools,
-pages and storage will be generated from what the plugin declares, so it
-always matches the version you run. These pages refer to those by name and
-explain what they are for; they do not repeat the list.
+**No reference here.** The plugin's roles, settings, pages, tools and storage
+are listed on the Documentation tab's Reference, drawn from the version's own
+declaration, so they always match the version you run. These sections refer
+to them by name and say what they are for.

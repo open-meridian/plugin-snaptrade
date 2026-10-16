@@ -28,9 +28,10 @@ from snaptrade.activities import (
     convert,
 )
 from snaptrade.contract import ActivityOutcome, Recorder
-from snaptrade.declaration import DECLARATION, seen
+from snaptrade.declaration import DECLARATION
 from snaptrade.linking import Links
 from snaptrade.normalise import ExternalAccount, Holding, Identifier, Side
+from snaptrade.not_carried import seen
 from snaptrade.page import RAW, RAW_DOWNLOAD, hold, pages
 from snaptrade.raw import (
     ACTIVITY_DIRECTORY,
