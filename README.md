@@ -10,12 +10,21 @@ custodian states it. It holds the `custody` role, and from contract v22 the
 at SnapTrade's trading API and reports what SnapTrade did with them
 ("Trading", below), and from contract v23 the fills of orders placed in a
 broker's own app, for the `ems` to accept or answer DK. This is release
-0.17.0, not released (CHANGELOG.md says what each release changed). How to set it up and use it,
-for its admin and its readers, is in [docs/](docs/README.md). How a plugin
+0.18.0, not released (CHANGELOG.md says what each release changed). How to set it up and use it,
+for its admin and its readers, is in [docs/](docs/README.md): the sections
+each version ships with its declaration, which a deployment shows on the
+plugin's Documentation tab (contract v25). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.27.0`, which declares
-contract v23 (meridian-design tasks/sdk-contract/venue-originated-fills-and-
+It is built on the SDK it pins, `open-meridian==0.29.0`, which declares
+contract v25 (meridian-design tasks/sdk-contract/plugins-are-shared-and-
+documented-contract): the version's declaration is the whole of what it says
+about itself -- its settings, its pages and tools, the accounts it names by
+SnapTrade's identifiers, and its documentation in `docs/` by digest -- and a
+plugin registers exactly the declaration its version was uploaded with.
+Contract v24's booking and one ID change nothing it sends; a holding
+SnapTrade names by the brokerage's symbol alone is recorded unresolved, as
+before. Before them, contract v23 (meridian-design tasks/sdk-contract/venue-originated-fills-and-
 the-lakes-outcomes-contract): venue-originated fills, accepted or answered
 DK by the `ems`; `FEE_KIND_COMMISSION`; the custody suite's markers for what
 a custodian never states; and the account's currency a person sets
@@ -1090,10 +1099,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.27.0`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.27.0`.
-0.27.0 is not on PyPI yet: until it is released, `make ci-local` builds it
-from the sibling checkout, and CI, which has none, cannot install it.
+The SDK is pinned exactly, `open-meridian==0.29.0`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.29.0`.
+0.29.0 is on PyPI and its base image on ghcr.io, which CI installs.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
 and the check's containers install it from source, and the image is built on
@@ -1189,6 +1197,17 @@ connectivity suite's v23 cases, and `tests/test_contract.py` knowing what v23
 adds that this plugin does not call (`accept_execution`,
 `dont_know_execution`, `report_value_date_roll`, the outcomes,
 `list_orders(execution_state=)`, `propose_order(quote_currency=)`).
+Moving to 0.29.0 (contract v25) from 0.27.0: the SDK's migrations rewrote
+nothing; by hand, as `meridian plugin migrate` lists it, the whole
+declaration (`declaration.py`: its settings, its interface at a fixed `PORT`,
+`reads_external_accounts`, its not-carried names and storage, and
+`documentation="docs"`), with `connect(declaration=DECLARATION)` alone, the
+kinds moved to `kinds.py` and the names not carried to `not_carried.py` so
+the declaration may import the pages; `docs/` written as the five sections;
+the custody suite's v24 case `records-a-thinly-described-holding-unresolved`;
+the connectivity suite's `reports-a-give-up-rejected` not presented (no
+give-up at SnapTrade); and `tests/test_contract.py` knowing v24's and v25's
+operations this plugin does not call.
 To move to a new SDK release, change all three together and run
 `make ci-local`; `tests/test_contract.py` fails on any operation or parameter
 the new SDK has that this plugin does not know, naming it.

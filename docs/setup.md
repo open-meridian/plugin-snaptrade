@@ -1,15 +1,17 @@
 # Setup
 
-Four steps, each by an **admin of this plugin** (a deployment admin is one,
-through the All plugins (admin) group, unless that was withdrawn). The plugin
-must already be launched, its role approved by a deployment admin.
+Each step is taken by an **admin of this plugin** (a deployment admin is
+one, through the All plugins (admin) group, unless that was withdrawn). The
+plugin must already be launched, its roles approved by a deployment admin.
+The steps follow every custody plugin's first-use path; what is SnapTrade's
+own is below.
 
 ## Before you start: which key
 
 SnapTrade issues one of two kinds of key:
 
-- **Personal key.** Belongs to one SnapTrade user: you. For your own
-  accounts.
+- **Personal key.** Belongs to one SnapTrade user, the account holder, for
+  their own accounts.
 - **Commercial key.** Your firm registers SnapTrade users of its own under
   it, each with a secret. One instance of this plugin reads one of those
   users' connections.
@@ -35,24 +37,27 @@ nothing and its status dot names what is missing.
 The other settings have sensible defaults: how often to read (**Read
 every**, five minutes) and when a sync counts as **Stale after** (24 hours).
 
-**How long records stay, and what happens after.** Three kinds of record
-are kept: **Raw responses**, what SnapTrade answered each read; **Reported
-activity**, each activity's own record; and **Trading**, each order sent to
-SnapTrade, each cancel and replace, and SnapTrade's answers about orders.
-Each has a **window**, how long it stays in the plugin's storage (30 days,
-seven years and seven years by default; the defaults are not a claim that
-any rule your firm follows is met), and a
-choice of what happens past it: **Archived** (moved to your deployment's
-archive, where you can restore it), **Kept** (left where it is) or
-**Deleted**. Archived is the default where your deployment's admin has
-allowed this plugin an archive; otherwise Kept. Nothing is deleted unless
-you choose it, never inside a hold your deployment's admin set, and an
-activity record never within the history SnapTrade reported. A window can't
-be set below the hold.
+## How long records stay
 
-**Coming from 0.12.0.** If you set **Keep raw responses for** or **Keep
-activity records for** before, those values carry over as the windows until
-you set a window yourself.
+Three kinds of record are kept: **Raw responses**, what SnapTrade answered
+each read; **Reported activity**, each activity's own record; and
+**Trading**, each order sent to SnapTrade, each cancel and replace, and
+SnapTrade's answers about orders.
+
+Each has a **window** on Settings, how long it stays in the plugin's storage
+(30 days, seven years and seven years by default; the defaults are not a
+claim that any rule your firm follows is met), and a choice of what happens
+past it:
+
+- **Archived**: moved to your deployment's archive, where it can be
+  restored; the default where your deployment's admin has allowed this
+  plugin an archive;
+- **Kept**: left where it is; the default otherwise;
+- **Deleted**.
+
+Nothing is deleted unless an admin chooses it, never inside a hold your
+deployment's admin set, and an activity record never within the history
+SnapTrade reported. A window cannot be set below the hold.
 
 ## 2. Connect a brokerage
 
@@ -80,19 +85,17 @@ once. Each deployment account takes one external account.
 Nothing is recorded for an account until it is linked. Then a deployment
 admin grants people read or write on it, so they see it under View or Open.
 
-## 4. The link tables, only if you need them
+## 4. Plan-code links, only if needed
 
-Both are tabs under Manage, each an editable table, up to 200 rows. Each row
-records who added or last changed it, and when.
-
-### Plan-code links
+A tab under Manage, an editable table of up to 200 rows; each row records
+who added or last changed it, and when.
 
 **Use it when** a retirement plan, such as a 401(k), names a fund in its
 activity by the plan's own code rather than a public symbol, so that
 activity arrives with no instrument.
 
 A row is the **account**, the **plan code** as SnapTrade names it, and the
-**instrument** record it is, found by search. From then on, that code's
+**instrument** record it is, found by search. After that, that code's
 activity is that instrument, naming who linked it.
 
 Activity that arrived before you added the row is re-resolved too: on the
@@ -101,7 +104,7 @@ recorded as that instrument, naming who linked it and when, beside the
 activity as it first arrived, which is kept. Changing the row re-resolves
 them again.
 
-### Account currency
+## Account currency, only if needed
 
 **Use it when** SnapTrade states no currency for an account's positions. A
 row is the **account** (leave it blank for every linked account) and its
@@ -110,7 +113,7 @@ first. From the next read, such a position is in that currency, naming who
 set it. Without a row, it is taken to be in the account's only cash
 currency, or US dollars, and the statement says it was derived.
 
-### Cash links
+## Cash links, only if needed
 
 **Use it when** a custodian holds cash as a position SnapTrade does not mark
 as cash, such as an FDIC-insured bank deposit held as an IRA's core
@@ -121,8 +124,8 @@ symbol), the **symbol** as SnapTrade names it, and the **currency** as an
 ISO code, such as USD. From the next read, the position is counted as cash
 in that currency, naming who listed it.
 
-- Where SnapTrade marks the position as cash itself, you need no row.
-- Never list a money market fund: a fund stays a fund.
+- Where SnapTrade marks the position as cash itself, no row is needed.
+- A money market fund is never listed here: a fund stays a fund.
 - Adding a row changes the next statement: the position goes and the cash
   rises. Your operations plugin shows that as a difference for a person to
   confirm.
@@ -133,24 +136,23 @@ A connection is read-only until trading is enabled on it. To place orders
 through SnapTrade, an admin of the plugin's **connectivity** role opens
 Connections and presses **Enable trading** on the connection: SnapTrade's
 Connection Portal opens to sign in to that brokerage again with trading
-access. The connection's account links stay as they were. In sample data it
-takes effect at once.
+access. The connection's account links stay as they were. With sample data
+on, it takes effect at once.
 
 Then your execution plugin's admin maps each account the desk trades to the
 code this plugin names it by: the external account shown on Account links
-(for example `ALPACA:SYN-ALP-1001` in sample data). From then on, an order
+(for example `ALPACA:SYN-ALP-1001` in sample data). After that, an order
 placed in the broker's own app on that account has its fills reported for
 the execution plugin to accept or answer DK; what the account had filled
 before is its history, which the statement holds, and is not reported.
 
-## Agents
+## Agents and sample data
 
 An agent you delegate to can connect a brokerage, link accounts and read
-what you can, through the deployment's tools; the reference lists them. The
+what you can, through the deployment's tools; the Reference lists them. The
 key is entered only on the Settings form.
 
-## Sample data
-
-On a development deployment, **Sample data** (`sample_data`, 0.13's `synthetic`) serves invented data shaped
+On a development deployment, **Sample data** serves invented data shaped
 like SnapTrade's, so the plugin can be tried before any key exists. Every
-figure it shows is invented, and its pages say so.
+figure it shows is invented, its pages say so, and it trades with a
+simulated brokerage, never SnapTrade.

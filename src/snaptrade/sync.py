@@ -44,7 +44,6 @@ from meridian.roles import custody
 from .activities import Converted, PlanCodeLink, convert
 from .archive import Keeper, Tended
 from .contract import ActivityOutcome, Outcome, Recorder
-from .declaration import seen
 from .linking import failure
 from .normalise import (
     AccountView,
@@ -55,6 +54,7 @@ from .normalise import (
     ns,
     views,
 )
+from .not_carried import seen
 from .plan_codes import changed_accounts
 from .raw import RawStore, Taken, activity_key, activity_taken, taken
 from .settings import Config

@@ -38,18 +38,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import signal
 from collections.abc import AsyncIterator
 
 import meridian
 from meridian import edge
 
-from .declaration import DECLARATION
+from .declaration import DECLARATION, PORT
 from .linking import Links, failure
-from .page import TITLE, pages, serve
+from .page import serve
 from .raw import RawStore, storage_root
-from .settings import DECLARED, config_from
+from .settings import config_from
 from .sync import Syncer
 from .trading import (
     POLL_SECONDS,
@@ -126,20 +125,12 @@ async def run() -> None:
     for stop in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(stop, stopped.set)
 
-    port = int(os.environ.get("SNAPTRADE_PAGE_PORT", "8000"))
-    async with await meridian.connect(
-        # Each page with the levels it serves: the dashboard shows it under
-        # those buttons, Manage, Open and View, and the SDK refuses it to a
-        # session at any other level.
-        interface=meridian.Interface(port=port, title=TITLE, pages=pages),
-        settings=DECLARED,
-        # Its secret settings' names, what it receives and does not carry,
-        # and the storage it asks for its raw responses (contract v11).
-        declaration=DECLARATION,
-        # It names accounts by SnapTrade's identifiers, which an admin of the
-        # plugin links to the deployment's accounts (W6.4).
-        reads_external_accounts=True,
-    ) as plugin:
+    port = PORT
+    # The version's whole declaration (declaration.py): its settings, its
+    # pages with the levels each serves, the accounts it names by SnapTrade's
+    # identifiers, what it does not carry, its storage and its documentation.
+    # A version registers exactly what it was uploaded with (contract v25).
+    async with await meridian.connect(declaration=DECLARATION) as plugin:
         log.info(
             "registered as %s, roles %s",
             plugin.identity.instance_id,

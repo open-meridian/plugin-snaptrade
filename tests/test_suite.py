@@ -27,9 +27,9 @@ from meridian.testing import caller_header
 from snaptrade.activities import Converted, PlanCodeLink, convert
 from snaptrade.contract import ActivityOutcome
 from snaptrade.contract import Recorder as Contract
-from snaptrade.declaration import seen
 from snaptrade.linking import Links
 from snaptrade.normalise import ns, views
+from snaptrade.not_carried import seen
 from snaptrade.raw import activity_key
 from snaptrade.venue import Snapshot
 from trading_cases import placed_and_filled
@@ -245,6 +245,31 @@ def ambiguous_for(symbol: str) -> Callable[[Recorder], Coroutine[Any, Any, None]
     return produce
 
 
+async def thinly_described(recorder: Recorder) -> None:
+    """A holding SnapTrade names by the brokerage's own symbol alone, with no
+    description of the security, which the platform does not know (contract
+    v24): recorded unresolved, naming what it was given, never guessed."""
+    recorder.answer(
+        "ResolveIdentifier",
+        lambda params: ops.ResolveIdentifierResult(
+            found=False, miss_reason=ops.MISS_REASON_NOT_FOUND
+        ),
+    )
+    await sync(
+        recorder,
+        snapshot(
+            positions=[
+                position(
+                    "SYNTHIN",
+                    "4",
+                    instrument={"description": None, "exchange": None, "id": None},
+                )
+            ],
+            balances=[balance("USD", "100.00")],
+        ),
+    )
+
+
 async def read_for_linking(recorder: Recorder) -> None:
     await Links(cast(meridian.Plugin, recorder)).offered(ADMIN)
 
@@ -329,6 +354,7 @@ PRODUCERS: dict[str, Callable[[Recorder], Coroutine[Any, Any, None]]] = {
     "read-accounts-for-linking": read_for_linking,
     "link-a-new-account": link_a_new_account,
     "a-security-holding": reading(positions=[position("AAPL", "12.5")]),
+    "records-a-thinly-described-holding-unresolved": thinly_described,
     "institution-not-stated": reading(account_=account(institution_name=None)),
     "cash-net-of-a-fund-counted-in-cash": reading(
         positions=[FUND], balances=[balance("USD", "1523.45")]

@@ -90,7 +90,7 @@ under it is re-resolved on the next read.
 ## A deposit shown as a holding
 
 SnapTrade does not mark it as cash. Add a row on **Cash links**
-([Setup](setup.md#cash-links)).
+([Setup](setup.md#cash-links-only-if-needed)).
 
 ## No lots, or "not reported"
 
@@ -136,4 +136,4 @@ troubleshooting.
 ## Still stuck
 
 Tell your deployment's admin, with the account, the time and the Raw
-responses entry to hand.
+records entry to hand.

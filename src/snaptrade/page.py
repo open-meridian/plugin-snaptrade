@@ -91,7 +91,7 @@ from meridian.v1 import sidecar_pb2
 
 from . import history, records
 from .activities import KINDS as ACTIVITY_KINDS
-from .declaration import ACTIVITY_KIND, KINDS, RESPONSES_KIND, TRADING_KIND
+from .kinds import ACTIVITY_KIND, KINDS, RESPONSES_KIND, TRADING_KIND
 from .linking import LINKS_AT_ONCE, Link, Links, LinkView, Offered, refusal, refused
 from .normalise import REMEDY, AccountView, ConnectionView, Holding, Serving, SyncState
 from .plan_codes import PlanCodeLink
