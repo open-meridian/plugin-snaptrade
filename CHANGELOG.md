@@ -22,8 +22,8 @@ documentation).
   plugin shares. `docs/README.md` stays the repository's index, not
   uploaded.
 - **The pins**: open-meridian 0.29.0 and plugin-python:0.29.0, core v25's
-  runtime and harness, and `meridian` 0.1.46 in `check.yaml`, each a marked
-  placeholder until published.
+  runtime and harness, and `meridian` 0.1.46 in `check.yaml`, each as released
+  (core abf028f, chart 0.1.306, by tag and digest).
 - **The suites**: custody's v24 case, a holding named by the brokerage's own
   symbol alone, recorded unresolved; connectivity's give-up case not
   presented, since no trade is given up at SnapTrade; the two cases every

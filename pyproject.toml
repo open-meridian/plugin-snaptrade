@@ -14,7 +14,6 @@ requires-python = ">=3.11"
 #
 # SnapTrade's own SDK is the one third-party dependency, pinned exactly too,
 # and only src/snaptrade/venue.py imports it.
-# PLACEHOLDER (v25): open-meridian 0.29.0 (SDK v25) is not on PyPI yet.
 dependencies = [
   "open-meridian==0.29.0",
   "snaptrade-python-sdk==13.0.27",

@@ -1101,9 +1101,7 @@ imports.
 
 The SDK is pinned exactly, `open-meridian==0.29.0`, and the `Dockerfile` and
 `Makefile` build on the base image of the same version, `plugin-python:0.29.0`.
-0.29.0 is not on PyPI yet: until it is released, `make ci-local` builds it
-from the sibling checkout, and CI, which has none, cannot install it. Each
-pin not yet published is marked `# PLACEHOLDER (v25)` where it stands.
+0.29.0 is on PyPI and its base image on ghcr.io, which CI installs.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
 and the check's containers install it from source, and the image is built on
