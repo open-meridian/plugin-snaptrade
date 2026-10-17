@@ -1,15 +1,15 @@
-closed|E2E Alpaca|local(figi:BBG000B9XRY4, symbol:AAPL@snaptrade)|long|settle_date_quantity|derived
-closed|E2E Alpaca|local(iso4217:CAD, open_meridian:INS-01JCAD00000000000000000001)|long|settle_date_quantity|derived
-closed|E2E Alpaca|local(iso4217:USD, open_meridian:INS-01JUSD00000000000000000001)|long|market_value|derived
-closed|E2E Alpaca|local(iso4217:USD, open_meridian:INS-01JUSD00000000000000000001)|long|quantity|derived
-closed|E2E Alpaca|local(iso4217:USD, open_meridian:INS-01JUSD00000000000000000001)|long|settle_date_quantity|derived
+closed|E2E Alpaca|INS-01JAAPL0000000000000000001|long|settle_date_quantity|derived
+closed|E2E Alpaca|INS-01JCAD00000000000000000001|long|settle_date_quantity|derived
+closed|E2E Alpaca|INS-01JUSD00000000000000000001|long|market_value|derived
+closed|E2E Alpaca|INS-01JUSD00000000000000000001|long|quantity|derived
+closed|E2E Alpaca|INS-01JUSD00000000000000000001|long|settle_date_quantity|derived
 closed|E2E Alpaca|local(symbol:AAPL  261218C00250000@snaptrade)|long|settle_date_quantity|derived
 closed|E2E Alpaca|local(symbol:BTC@snaptrade)|long|settle_date_quantity|derived
 closed|E2E Alpaca|local(symbol:SYNXX@snaptrade)|long|settle_date_quantity|derived
 closed|E2E Alpaca|local(symbol:ZZTOP@snaptrade)|short|settle_date_quantity|derived
-position|E2E Alpaca|local(figi:BBG000B9XRY4, symbol:AAPL@snaptrade)|long|12.5|12.5||
-position|E2E Alpaca|local(iso4217:CAD, open_meridian:INS-01JCAD00000000000000000001)|long|200.00|200.00|200.00 CAD|
-position|E2E Alpaca|local(iso4217:USD, open_meridian:INS-01JUSD00000000000000000001)|long|1023.45|1023.45|1023.45 USD|
+position|E2E Alpaca|INS-01JAAPL0000000000000000001|long|12.5|12.5||
+position|E2E Alpaca|INS-01JCAD00000000000000000001|long|200.00|200.00|200.00 CAD|
+position|E2E Alpaca|INS-01JUSD00000000000000000001|long|1023.45|1023.45|1023.45 USD|
 position|E2E Alpaca|local(symbol:AAPL  261218C00250000@snaptrade)|long|2|2||
 position|E2E Alpaca|local(symbol:BTC@snaptrade)|long|0.012345678|0.012345678||
 position|E2E Alpaca|local(symbol:SYNXX@snaptrade)|long|500.00|500.00||
