@@ -673,6 +673,12 @@ KNOWN_PARAMETERS = {
         "booking_updated",
         "alert_changed",
         "replace_merged_instrument",
+        # Known, and not heard (v26): a finished job goes to the role that
+        # ran it, a price batch to a pricing plugin, and an event group's new
+        # version to the roles reading event contracts, which SnapTrade is not.
+        "job_finished",
+        "price_batch",
+        "event_group_changed",
     },
     # Known, and not used (v8): the book of record is an operations plugin's
     # to write and five other roles' to read (operations, portfolio,
@@ -1096,6 +1102,51 @@ KNOWN_PARAMETERS = {
     # Known, and not used: whether orders may name a local record, the
     # oms's and the ems's to weigh; from v25 connectivity is not granted it.
     "read_local_record_orders": set(),
+    # Known, and not used (v26): the agents' demo-only guard is the dashboard's
+    # and the ems's to read, SnapTrade's connections counting live whatever it
+    # says; the analytics component's jobs, measures and price batches are
+    # the reading roles' and the pricing role's; event groups are a venue's
+    # data plugin's, and SnapTrade lists no event contract; the lake's
+    # bounded query is a reading role's.
+    "read_agent_orders_demo_only": set(),
+    "run_job": {"job"},
+    "read_job_answer": {"job_id"},
+    "list_finished_jobs": {"after_sequence"},
+    "list_measure_definitions": set(),
+    "list_price_batches": {"after_sequence"},
+    "answer_price_batch": {"acting_for", "batch_id", "sensitivities", "values"},
+    "report_event_group": {
+        "acting_for",
+        "exhaustive",
+        "member_instrument_ids",
+        "mutually_exclusive",
+        "raw_record",
+        "series_id",
+        "title",
+        "valid_from_ns",
+        "venue_event_ref",
+        "venue_id",
+    },
+    "list_event_groups": {
+        "after_sequence",
+        "as_of_ns",
+        "cursor",
+        "event_group_ids",
+        "instrument_ids",
+        "page_size",
+    },
+    "query_lake": {
+        "as_of_ns",
+        "fields",
+        "from_date",
+        "kind",
+        "row_limit",
+        "sources",
+        "subjects",
+        "to_date",
+        "valid_from_ns",
+        "valid_until_ns",
+    },
 }
 
 

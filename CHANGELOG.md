@@ -3,7 +3,40 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
-## 0.18.0 (not released)
+## 0.19.0
+
+Contract v26, on open-meridian 0.31.0 (meridian-design plans/the-v26-build,
+§8; spec/the-contract-gaps-v26-and-v27-close, G1).
+
+- **Trading on the SDK's Trader** (ruling 213): `trading.py` keeps only
+  SnapTrade's venue (`TradingVenue`: its statuses, its order records, its
+  charges from the activities, the settlement date it states, its
+  catalogue) under `meridian.roles.connectivity.Trader`, which now does the
+  bookkeeping, the firm's controls, changes and venue-originated fills that
+  0.18.0 kept by hand. A Trader subclass keeps what SnapTrade decides:
+  trading enabled per connection, and a good-till-date order sent with its
+  expire date. The storage files are read as they were; a charge 0.18.0
+  noted is carried over to the SDK's notation, so none is reported twice.
+  An order SnapTrade lists `REPLACED` is followed to the order carrying its
+  client order ID, rather than reported as a status not mapped.
+- **Every connection is live**: SnapTrade has no demo environment, so its
+  venue catalogue reports the environment its session reached as `live` on
+  every code, and Connections says every connection is **Live** in a line
+  under the section, with each row's badge in an Environment column on a
+  wide screen (`read_connections` answers `environment`). While the
+  deployment lets agents place orders on demo connections only, an agent's
+  new placement on SnapTrade is refused; a person's own, and every cancel,
+  is not.
+- **The pins**: open-meridian 0.31.0 and plugin-python:0.31.0, core v26's
+  runtime and harness (core 17a13a2, chart 0.1.308, by tag and digest), and
+  `meridian` 0.1.49 in `check.yaml`.
+- **The suites**: the connectivity suite's count with contract v26's
+  `hears-and-reads-an-event-group`, answered by the SDK; `tests/test_contract.py`
+  knows v26's operations and deliveries this plugin does not call.
+- **Docs**: Overview, Pages and Setup say every connection is live and what
+  that means for agents.
+
+## 0.18.0
 
 Contract v25, on open-meridian 0.29.0 (meridian-design tasks/sdk-contract/
 plugins-are-shared-and-documented-contract; plans/a-plugin-carries-its-own-

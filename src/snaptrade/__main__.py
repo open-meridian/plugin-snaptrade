@@ -20,13 +20,14 @@ accounts are linked, and to what, it reads beside its account scope, holding
 the first delivery before its pages are served and each one after
 (linking.py).
 
-From contract v22 it is also a connectivity plugin (trading.py): it hears
-each placement naming its instance, places it at SnapTrade's trading API in
-the account its venue account code names, and reports what SnapTrade did
-with it, polling SnapTrade for each working order; it honours the trading
-instructions in force, and publishes what SnapTrade offers per account.
-Synthetic mode trades with a simulated brokerage (synthetic_orders.py), never
-SnapTrade.
+From contract v22 it is also a connectivity plugin (trading.py, on the SDK's
+`meridian.roles.connectivity.Trader` from 0.19.0): it hears each placement
+naming its instance, places it at SnapTrade's trading API in the account its
+venue account code names, and reports what SnapTrade did with it, polling
+SnapTrade for each working order; it honours the trading instructions in
+force, and publishes what SnapTrade offers per account, its environment live
+(contract v26). Synthetic mode trades with a simulated brokerage
+(synthetic_orders.py), never SnapTrade.
 
 Everything goes through the sidecar. The SnapTrade credentials arrive as the
 plugin's own secret settings, set by an admin of the plugin in the dashboard,
@@ -43,6 +44,7 @@ from collections.abc import AsyncIterator
 
 import meridian
 from meridian import edge
+from meridian.roles import connectivity
 
 from .declaration import DECLARATION, PORT
 from .linking import Links, failure
@@ -53,13 +55,10 @@ from .sync import Syncer
 from .trading import (
     POLL_SECONDS,
     SYNTHETIC_POLL_SECONDS,
-    Charged,
-    Sent,
     Trader,
-    Watched,
-    charged_file,
-    originated_file,
-    sent_file,
+    TradingVenue,
+    charged,
+    storage_base,
 )
 
 log = logging.getLogger("snaptrade")
@@ -158,7 +157,9 @@ async def run() -> None:
             asyncio.create_task(poll(syncer, configured, wake)),
         ]
         if "connectivity" in plugin.identity.roles:
-            trader = Trader(
+            # SnapTrade's trading API in the SDK's words, over the venue the
+            # settings last gave (None until they are given).
+            venue = TradingVenue(
                 plugin,
                 lambda: syncer.venue,
                 now=syncer.now,
@@ -169,11 +170,19 @@ async def run() -> None:
                     if syncer.config.credentials is not None
                     else ()
                 ),
-                sent=Sent(sent_file(syncer.raw)),
-                # Venue-originated orders and the charges reported, kept in
-                # storage so a restart reports neither twice (contract v23).
-                watched=Watched(originated_file(syncer.raw)),
-                charged=Charged(charged_file(syncer.raw)),
+            )
+            base = storage_base(syncer.raw)
+            sent, _, originated = connectivity.trading_files(base)
+            trader = Trader(
+                plugin,
+                lambda: venue if syncer.venue is not None else None,
+                now=syncer.now,
+                # The placements sent, the venue-originated orders and the
+                # charges reported, kept in storage so a restart sends and
+                # reports none twice (contract v23).
+                sent=connectivity.Sent(sent),
+                watched=connectivity.Watched(originated),
+                charged=charged(connectivity.charged_file(base)),
                 # The venue account codes its `ems` mapped on it, as the
                 # account scope delivers them (W11.22).
                 scope=lambda: links.scope,

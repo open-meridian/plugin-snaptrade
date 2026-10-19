@@ -16,9 +16,15 @@ each version ships with its declaration, which a deployment shows on the
 plugin's Documentation tab (contract v25). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.29.0`, which declares
-contract v25 (meridian-design tasks/sdk-contract/plugins-are-shared-and-
-documented-contract): the version's declaration is the whole of what it says
+It is built on the SDK it pins, `open-meridian==0.31.0`, which declares
+contract v26 (meridian-design tasks/sdk-contract/the-analytics-component-
+contract): its connectivity work is the SDK's `meridian.roles.connectivity`
+Trader over SnapTrade's own venue (ruling 213), and its venue catalogue says
+the environment its session reached, live, which the agents' demo-only guard
+reads (spec/the-contract-gaps-v26-and-v27-close, G1). The analytics
+component, event groups and the lake's bounded query change nothing it
+sends. Before it, contract v25 (meridian-design tasks/sdk-contract/plugins-
+are-shared-and-documented-contract): the version's declaration is the whole of what it says
 about itself -- its settings, its pages and tools, the accounts it names by
 SnapTrade's identifiers, and its documentation in `docs/` by digest -- and a
 plugin registers exactly the declaration its version was uploaded with.
@@ -139,17 +145,34 @@ tax lots for (the History tab, below). Neither is sent to the street from
 there: the activities reach it by the reads above, and the proposals are for
 the person to carry into an opening balance and answer for there.
 
-## Trading (connectivity, contracts v22 and v23)
+## Trading (connectivity, contracts v22, v23 and v26)
 
 It holds `connectivity` beside `custody` (meridian-design
 plans/an-order-reaches-a-venue-through-the-book, build row 16 and "v23:
-venue-originated fills"; W11.8 to W11.12, W11.20, W11.23 and W11.24). It is `src/snaptrade/trading.py`, run
+venue-originated fills"; W11.8 to W11.12, W11.20, W11.23 and W11.24). It is
+the SDK's `meridian.roles.connectivity.Trader` (from 0.19.0; ruling 213) over
+`src/snaptrade/trading.py`'s `TradingVenue`, which reads SnapTrade's words
+into the SDK's and back -- its statuses, its order records, its charges from
+the activities, the settlement date it states, its catalogue -- and nothing
+else; what every connectivity plugin does the same (the bookkeeping below,
+the firm's controls, changes, venue-originated fills) is the SDK's. It runs
 beside the custody reads once the deployment approved the role, and it
 reaches SnapTrade only through `venue.py`. **Tests and `make e2e` trade only
 with the synthetic brokerage** (`src/snaptrade/synthetic_orders.py`), never
 SnapTrade, a paper account or a live one; the live paper run is the product
 owner's alone, manual, later.
 
+- **Every connection is live** (contract v26; spec/the-contract-gaps-v26-
+  and-v27-close, G1, and question M4). SnapTrade has no demo environment --
+  no sandbox host, no paper connection -- so each connection is a
+  brokerage's own account: its venue catalogue reports the environment its
+  session reached as `live` on every code, and Connections shows each
+  connection **Live** (`read_connections` answers `environment: live`). It
+  has no `environment` setting, which the guard counts live too. While the
+  deployment's `agent_orders_demo_only` is on, an agent's new placement on
+  SnapTrade (through a delegation or by a service account) is refused
+  before it reaches the plugin; a person's own placement, and every cancel,
+  is not.
 - **A connection is read-only until trading is enabled on it** (step 5's
   Q10). The Connection Portal opens read-only, as before; an admin of the
   plugin's `connectivity` role enables trading per connection on
@@ -164,7 +187,9 @@ owner's alone, manual, later.
   external account ID this plugin reports for custody (Account links shows
   each). Its order is read from the book (ListOrders), the instrument's
   record for the ticker SnapTrade names it by (ResolveInstrument), and the
-  placement's ID is SnapTrade's client order ID.
+  placement's ID is SnapTrade's client order ID; a good-till-date order is
+  sent with its order's expire date (`expiry_date`). SnapTrade's accounts
+  are read at most once a minute, and afresh for a queued placement.
 - **What it reports, each with the raw record it was converted from**:
   acknowledged with SnapTrade's brokerage order ID; rejected `unsupported`
   where SnapTrade or this plugin does not offer it for the account (a
@@ -174,7 +199,8 @@ owner's alone, manual, later.
   sent; `venue rejected` with SnapTrade's code and words as reported where
   SnapTrade refused it; outcome unknown, `venue status not mapped`, the
   status as reported, for a status the mapping does not know; cancelled,
-  expired, suspended. A send SnapTrade never answered is outcome unknown,
+  expired, suspended; `REPLACED`, the order carrying its client order ID
+  after it followed. A send SnapTrade never answered is outcome unknown,
   `request unanswered`, resolved by asking SnapTrade for the account's
   orders and matching the client order ID where SnapTrade's record carries
   it, never by sending again: each placement is noted in the plugin's
@@ -251,7 +277,8 @@ owner's alone, manual, later.
   SnapTrade's place-order API takes (Market, Limit, Stop, StopLimit; Day,
   GTC, FOK, IOC, GTD) for an account whose connection has trading enabled,
   and none for a read-only one; never a strategy, SnapTrade having none to
-  describe on FIXatdl's model. A brokerage refusing one of them answers at
+  describe on FIXatdl's model; and from contract v26 its environment, `live`
+  (above). A brokerage refusing one of them answers at
   placement, `venue rejected`. The synthetic brokerages state their own
   (synthetic Alpaca takes no good-till-date order). From contract v23 it
   says SnapTrade takes no execution acknowledgement
@@ -311,14 +338,17 @@ synthetic mode), within SnapTrade's limit of ten requests a minute per
 account.
 
 **The connectivity suite** (`tests/test_connectivity_suite.py`) runs every
-case of the SDK's suite against the plugin's own Trader and the synthetic
-brokerage: 23 of its 31 pass -- among them contract v23's
+case of the SDK's suite against the SDK's Trader over the plugin's own venue
+and the synthetic brokerage: 26 of its 35 pass, 23 from the plugin's own
+producers and three every suite holds answered by the SDK
+(`hears-and-reads-a-replacement`, `reads-the-template-catalogue` and, from
+contract v26, `hears-and-reads-an-event-group`) -- among them contract v23's
 `reports-a-fill-on-no-placement`,
 `reports-a-later-fill-on-the-accepted-placement` and
 `re-reports-a-charge-on-the-accepted-placement` (SYN-OUT-0001, below), and
 the `about` cases SnapTrade does present, `reports-a-bust` (a later read
 showing less filled) and `reports-a-charge` (a cancel's `FEE` activity
-naming the order) -- and eight are not presented, each with why, as the
+naming the order) -- and nine are not presented, each with why, as the
 suite lets a case marked `about` or `about_field` be:
 `reads-a-calendar` (it asks the date read for each fill's settlement date;
 it reads no calendar's days), `records-a-locate` and
@@ -330,7 +360,8 @@ states no fill's place of execution), and
 `hears-an-accounts-attributes-change` (it places what its `ems` released;
 whether releases wait for compliance changes nothing it sends), and
 `reports-a-value-date-roll` (SnapTrade's brokerages settle each trade on
-its settlement date; none rolls a spot position at a daily cut). No suite
+its settlement date; none rolls a spot position at a daily cut), and
+`reports-a-give-up-rejected` (no trade is given up to a prime broker). No suite
 test is skipped or expected to fail. The custody suite's
 `asks-for-a-settlement-date` is the same fill path; its `reads-a-calendar`
 is not presented, with the same why, and every other case passes, contract
@@ -1099,9 +1130,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.29.0`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.29.0`.
-0.29.0 is on PyPI and its base image on ghcr.io, which CI installs.
+The SDK is pinned exactly, `open-meridian==0.31.0`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.31.0`.
+0.31.0 is on PyPI and its base image on ghcr.io, which CI installs.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
 and the check's containers install it from source, and the image is built on
@@ -1208,6 +1239,19 @@ the custody suite's v24 case `records-a-thinly-described-holding-unresolved`;
 the connectivity suite's `reports-a-give-up-rejected` not presented (no
 give-up at SnapTrade); and `tests/test_contract.py` knowing v24's and v25's
 operations this plugin does not call.
+Moving to 0.31.0 (contract v26) from 0.29.0: the SDK's migrations rewrote
+nothing; by hand, as `meridian plugin migrate` lists it, `trading.py` onto
+`meridian.roles.connectivity` (`trading-onto-sdk`): its own Trader, `Sent`,
+`Charged`, `Watched` and their bookkeeping gave way to the SDK's, the plugin
+keeping SnapTrade's venue (`TradingVenue`) and a Trader subclass for what
+SnapTrade decides (trading enabled per connection, a good-till-date order's
+date), the charges 0.18.0 noted carried over to the SDK's notation
+(`trading.charged`) and its storage files read as they were; the venue's
+environment, `live` (`venue-reports-no-environment`), on its catalogue and
+Connections; the connectivity suite's count with the SDK's
+`hears-and-reads-an-event-group`; and `tests/test_contract.py` knowing v26's
+operations and deliveries this plugin does not call. `check.yaml` holds it
+to `meridian` 0.1.49, the first carrying contract v26's suites.
 To move to a new SDK release, change all three together and run
 `make ci-local`; `tests/test_contract.py` fails on any operation or parameter
 the new SDK has that this plugin does not know, naming it.
@@ -1222,9 +1266,8 @@ with it (`HARNESS_IMAGE`), which it runs on; below.
 a sidecar, with a broker, the street store and a dashboard, all from the
 released `meridian-runtime` image the `Makefile` pins
 (`RUNTIME_IMAGE`, `<commit>@sha256:<digest>`; the core it names is in the
-`Makefile`, contract v22 until core v23's runtime and harness are published,
-which `make ci-local` meanwhile runs against built locally:
-`make ci-local RUNTIME_IMAGE=... HARNESS_IMAGE=...`).
+`Makefile`, core 17a13a2's contract v26; `make ci-local RUNTIME_IMAGE=...
+HARNESS_IMAGE=...` runs against others).
 That deployment is core's **plugin harness**, published beside the runtime
 as its own image of files, `meridian-harness`, at the same commit's tag
 (`HARNESS_IMAGE`, pinned by digest too; `/harness`, with its own README).

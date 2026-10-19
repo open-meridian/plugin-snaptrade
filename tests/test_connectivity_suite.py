@@ -127,7 +127,7 @@ async def the_same_fill_twice(recorder: Recorder) -> None:
     again = placement(
         quantity="1",
         state=ops.PLACEMENT_STATE_WORKING,
-        venue_order_id=worked.brokerage_order_id,
+        venue_order_id=worked.venue_order_id,
     )
     rig.holds(again)
     rig.trader = rig.make()
@@ -254,7 +254,8 @@ def test_the_connectivity_suite_passes() -> None:
     assert report.not_presented == NOT_PRESENTED
     assert set(report.passed_cases) == set(PRODUCERS) | set(ANSWERED_BY_SDK)
     assert report.answered_by_sdk == list(ANSWERED_BY_SDK)
-    assert len(report.passed_cases) == 25
+    # Contract v26 adds the event group every suite holds, answered by the SDK.
+    assert len(report.passed_cases) == 26
 
 
 def test_a_plugin_sending_on_a_pause_fails_the_suite() -> None:

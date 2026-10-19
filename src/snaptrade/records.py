@@ -140,6 +140,13 @@ class ConnectionRead(custody.ConnectionRead):
     remedy: str = ""
     serving: str = field(default="", metadata={"description": "real_time, delayed, or unknown"})
     disabled_at: str = ""
+    # Contract v26 (G1, M4): the environment the connection trades in, as
+    # its venue catalogue reports it -- live, SnapTrade having no demo
+    # environment, so the agents' guard refuses an agent's placement on it.
+    environment: str = field(
+        default="",
+        metadata={"description": "live: SnapTrade has no demo environment"},
+    )
 
 
 @dataclass(frozen=True)

@@ -129,8 +129,15 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   the flat figures, never a margin requirement, never a sum across
   currencies. A number that would not cross the wire exactly (18 places, 38
   digits) is caught in `normalise.py`, before its statement opens.
-- **Trading is `trading.py`** (contract v22, `connectivity`; the README's
-  "Trading"). It acts on a placement naming its own instance and no other;
+- **Trading is the SDK's `meridian.roles.connectivity.Trader` over
+  `trading.py`'s `TradingVenue`** (contract v22, `connectivity`; from 0.19.0,
+  ruling 213; the README's "Trading"). Keep SnapTrade's words in
+  `TradingVenue` (statuses, order records, charges, the settlement date it
+  states, the catalogue) and what SnapTrade decides in the `Trader`
+  subclass; never copy the SDK's bookkeeping back. It reports every
+  connection's environment `live` (contract v26: SnapTrade has no demo
+  environment), so the agents' guard counts it live: never report `paper`
+  or `sandbox`. It acts on a placement naming its own instance and no other;
   places it at SnapTrade only through `venue.py` (`place`, `orders`,
   `cancel`, `replace`), the placement's ID as SnapTrade's client order ID;
   tells a cancel from a replace by the placement's change request
@@ -146,7 +153,7 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   or ExecutionRecorded) its later fills and charges on that placement;
   tells SnapTrade nothing of an accept or a DK (its catalogue's
   `execution_acknowledgement` is none); reports each fact with
-  its raw record, kept as the `trading` kind; never sends a placement twice (`Sent`,
+  its raw record, kept as the `trading` kind; never sends a placement twice (the SDK's `Sent`,
   noted in storage before each send; an unanswered send is asked about,
   never resent); infers fills from SnapTrade's filled quantity, each with a
   derived ID and the date read's settlement date (`compute_date`), never a
@@ -154,7 +161,7 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   and a charge only from a `FEE` activity naming an order of a placement
   that ended unfilled or, a commission (`FEE_KIND_COMMISSION`), from the
   `fee` of the `BUY` or `SELL` activity naming an order, each once
-  (`Charged`, in storage); holds every new send under a pause or a stop and
+  (the SDK's `charged`, in storage); holds every new send under a pause or a stop and
   cancels at SnapTrade under a stop, naming the stop's entry; never sends
   the listing exchange as a place of execution. A connection is read-only
   until an admin of `connectivity` enables trading on it. **Tests and

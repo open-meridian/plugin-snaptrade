@@ -413,8 +413,16 @@ def test_the_connections_tab_has_no_tiles_but_its_card_rows_and_actions(
     # Schwab's, needing sign-in, led to Reconnect; Refresh and Connect in the
     # head.
     assert "<h2>Connections</h2>" in body
-    for column in ("Connection", "State", "Accounts reached", "Last read"):
+    for column in ("Connection", "State", "Accounts reached", "Last read", "Environment"):
         assert f">{column}</th>" in body
+    # Each connection's environment, Live (contract v26): SnapTrade has no
+    # demo environment, so the agents' guard counts every one live. A wide
+    # screen badges each row; a line under the section says so at every width.
+    assert body.count('<td class="wide-only"><span class="badge warn">Live</span></td>') == 4
+    assert (
+        'Every connection is <span class="badge warn">Live</span>: SnapTrade has no demo'
+        in body
+    )
     assert ">Refresh</button>" in body and ">Connect</button>" in body
     assert body.count('<td class="actions">') == 4
     assert '<button class="small primary" aria-label="Reconnect' in body
