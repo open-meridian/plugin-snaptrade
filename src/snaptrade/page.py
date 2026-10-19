@@ -109,6 +109,7 @@ from .raw import (
 )
 from .settings import CLIENT_ID, COMMERCIAL, CONSUMER_KEY, USER_SECRET, label
 from .sync import Status, Syncer
+from .trading import ENVIRONMENT
 from .venue import VenueError
 
 TITLE = "SnapTrade"
@@ -453,6 +454,12 @@ def _last_read(status: Status) -> dict[str, str]:
 # ── Connections, at admin ───────────────────────────────────────────────────
 
 
+#: A connection's environment as its badge shows it (contract v26, G1):
+#: Live on every one, SnapTrade having no demo environment and no
+#: environment setting (the guard reads both, and counts either missing live).
+ENVIRONMENT_BADGE = {"label": meridian.connection_badge("", ENVIRONMENT), "tone": "warn"}
+
+
 def _connection(connection: ConnectionView) -> dict[str, Any]:
     """One brokerage connection as its row shows it: its health and what to do,
     how SnapTrade serves it, and whether Refresh means anything for it."""
@@ -478,6 +485,9 @@ def _connection(connection: ConnectionView) -> dict[str, Any]:
         # A connection is read-only until trading is enabled on it (step 5's
         # Q10), which reconnects it with trading access.
         "trading": connection.access == "trade",
+        # Its environment's badge (contract v26, G1): Live, SnapTrade having
+        # no demo environment, as its venue catalogue reports.
+        "environment": ENVIRONMENT_BADGE,
     }
 
 
@@ -514,6 +524,7 @@ def _connections(notice: Notice | None = None, portal: str | None = None) -> mer
             waiting=_waiting_for(status),
             error=status.error,
             shown={c.connection_id: _connection(c) for c in status.connections},
+            environment=ENVIRONMENT_BADGE,
             users=status.users,
             # Enabling trading is the connectivity role's admin's (contract v22):
             # the template asks the caller's level on that role.
@@ -556,6 +567,7 @@ def _connections_read(status: Status) -> records.ConnectionsRead:
                 remedy="" if c.state is SyncState.CURRENT else REMEDY[c.state],
                 serving=c.serving.value,
                 disabled_at=c.disabled_at.isoformat() if c.disabled_at else "",
+                environment=ENVIRONMENT,
             )
             for c in status.connections
         ],

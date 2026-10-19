@@ -1,5 +1,5 @@
-"""SnapTrade's connectivity work run against the suites' recorder: the
-plugin's own Trader (trading.py) and its synthetic brokerage
+"""SnapTrade's connectivity work run against the suites' recorder: the SDK's
+Trader over the plugin's own venue (trading.py) and its synthetic brokerage
 (synthetic_orders.py), only the sidecar stood in for by the recorder.
 
 Shared by the connectivity suite's test and the custody suite's
@@ -18,13 +18,14 @@ from typing import Any
 
 import meridian
 from meridian.plugin.v1 import operations_pb2 as ops
+from meridian.roles.connectivity import Sent, Watched
 from meridian.suites import Recorder
 
 from snaptrade import synthetic
 from snaptrade.raw import RawStore
 from snaptrade.synthetic import SyntheticVenue
 from snaptrade.synthetic_orders import SyntheticTrading
-from snaptrade.trading import Charged, Sent, Trader, Watched
+from snaptrade.trading import Trader, TradingVenue, charged
 
 from conftest import NOW, clock
 
@@ -175,17 +176,26 @@ class Rig:
         self.trader = self.make()
 
     def make(self) -> Trader:
-        return Trader(
+        """The plugin started (again): its venue and the SDK's Trader over it,
+        the book read on start as `run` would have it before it hears."""
+        self.trading_venue = TradingVenue(
             self.recorder,
             lambda: self.venue,
             now=clock(NOW),
             raw=self.raw,
             synthetic=lambda: True,
+        )
+        trader = Trader(
+            self.recorder,
+            lambda: self.trading_venue,
+            now=clock(NOW),
             sent=self.sent,
             scope=lambda: self.scope,
             watched=Watched(self.watched / "originated.json" if self.watched else None),
-            charged=Charged(self.watched / "charged.json" if self.watched else None),
+            charged=charged(self.watched / "charged.json" if self.watched else None),
         )
+        trader.started.set()
+        return trader
 
     def _listed(self, _: Any) -> ops.ListOrdersResult:
         return ops.ListOrdersResult(

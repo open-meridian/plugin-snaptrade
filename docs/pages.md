@@ -20,7 +20,9 @@ own. See [Setup](setup.md).
 
 ## Connections
 
-Under Manage. Each brokerage connection: its health and what to do about it.
+Under Manage. Each brokerage connection: its health, what to do about it,
+and its environment, **Live** on every one, since SnapTrade has no demo
+environment.
 
 - **Connect** connects a brokerage through SnapTrade's Connection Portal.
 - **Refresh**, in the card's header, reads SnapTrade now.

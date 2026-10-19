@@ -1,8 +1,10 @@
-"""SnapTrade's connectivity work (trading.py) beyond what the suite asks:
-how a fill's price and ID are derived, that a placement is never sent twice,
-that a held placement is sent once the pause lifts, and that a fill waits
-for its settlement date rather than guess one. SIMULATED ONLY: the synthetic
-brokerage stands in for SnapTrade, the suites' recorder for the sidecar."""
+"""SnapTrade's connectivity work (trading.py, the SDK's Trader over its own
+venue) beyond what the suite asks: that a placement is never sent twice,
+that a held placement is sent once the pause lifts, that a fill waits for its
+settlement date rather than guess one, SnapTrade's replaces and venue-
+originated fills, and its environment, live. How a fill's price and ID are
+derived is the SDK's, tested there. SIMULATED ONLY: the synthetic brokerage
+stands in for SnapTrade, the suites' recorder for the sidecar."""
 
 from __future__ import annotations
 
@@ -14,14 +16,17 @@ from typing import Any
 import pytest
 from meridian.operations import as_decimal
 from meridian.plugin.v1 import operations_pb2 as ops
+from meridian.roles.connectivity import Sent, symbol_of
 from meridian.suites import Recorder
 
 from snaptrade import synthetic, synthetic_orders
-from snaptrade.trading import Sent, execution_id, fill_price, ticker_of
-from snaptrade.venue import VenueError
+from snaptrade.normalise import SOURCE
+from snaptrade.trading import ENVIRONMENT, charged
+from snaptrade.venue import OrderAsked, VenueError
 from trading_cases import (
     ACCEPTED,
     ALPACA_CODE,
+    IBKR_CODE,
     Rig,
     accept,
     asking,
@@ -34,27 +39,11 @@ from trading_cases import (
 )
 
 
-def test_a_fills_price_is_worked_out_from_the_two_averages() -> None:
-    # 4 at 227.41, then 6 more bringing the average to 227.50.
-    price, rounded = fill_price(Decimal(4), Decimal("227.41"), Decimal(10), Decimal("227.50"))
-    assert (price, rounded) == (Decimal("227.56"), False)
-    # One that does not divide is rounded, and says so.
-    price, rounded = fill_price(Decimal(1), Decimal("10"), Decimal(4), Decimal("10.01"))
-    assert rounded and price == Decimal("10.01333333")
-
-
-def test_a_fills_id_is_the_order_and_the_quantity_it_brought_it_to() -> None:
-    assert execution_id("SYN-ORD-0001", Decimal("10.0")) == "SYN-ORD-0001:10"
-    assert execution_id("SYN-ORD-0001", Decimal("10")) == execution_id(
-        "SYN-ORD-0001", Decimal("10.000")
-    )
-
-
 def test_the_ticker_is_snaptrades_own_symbol_first() -> None:
     record = instrument("AAPL")
     record.identifiers.insert(0, ops.Identifier(scheme="symbol", value="AAPL.O", source="x"))
-    assert ticker_of(record) == "AAPL"
-    assert ticker_of(ops.InstrumentRecord()) == ""
+    assert symbol_of(record, SOURCE) == "AAPL"
+    assert symbol_of(ops.InstrumentRecord(), SOURCE) == ""
 
 
 def test_a_placement_noted_sent_is_asked_about_and_never_sent_again(tmp_path: Path) -> None:
@@ -160,7 +149,7 @@ def _working(rig: Rig, quantity: str = "200") -> ops.Placement:
     return placement(
         quantity=quantity,
         state=ops.PLACEMENT_STATE_WORKING,
-        venue_order_id=worked.brokerage_order_id,
+        venue_order_id=worked.venue_order_id,
     )
 
 
@@ -432,6 +421,72 @@ def test_an_order_placed_in_the_brokers_app_has_its_fills_reported_on_no_placeme
     ]
 
 
+#: Two listings sharing the symbol AAPL -- a share class, a listing elsewhere
+#: -- which only the FIGI SnapTrade states tells apart.
+FIGI = "BBG000B9XRY4"
+BY_FIGI = "INS-01J8XQ4M7K0000000000AAPL"
+
+
+def test_a_fill_on_no_placement_is_resolved_by_the_figi_snaptrade_states() -> None:
+    """SnapTrade spans many brokerages and exchanges: the symbol alone names
+    two listings, so the fill is resolved by every identifier SnapTrade
+    states for the order -- its FIGI first, then its symbol -- and priced in
+    the currency SnapTrade states for the listing."""
+    recorder = Recorder("snaptrade")
+
+    def resolved(params: Any) -> ops.ResolveIdentifierResult:
+        if any(i.scheme == "figi" and i.value == FIGI for i in params.identifiers):
+            return ops.ResolveIdentifierResult(found=True, instrument_id=BY_FIGI)
+        return ops.ResolveIdentifierResult(found=False, miss_reason=ops.MISS_REASON_AMBIGUOUS)
+
+    recorder.answer("ResolveIdentifier", resolved)
+    rig = Rig(recorder)
+
+    async def produce() -> None:
+        await rig.trader.start()
+        await rig.trader.poll()
+        (record,) = [
+            o
+            for o in rig.trading._held["orders"][synthetic.ALPACA_MARGIN]
+            if o["brokerage_order_id"] == synthetic_orders.OUTSIDE_ID
+        ]
+        record["universal_symbol"].update(figi_code=FIGI, currency={"code": "CAD"})
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    (asked,) = recorder.on("ResolveIdentifier")
+    assert [(i.scheme, i.value, i.source) for i in asked.identifiers] == [
+        ("figi", FIGI, ""),
+        ("symbol", "AAPL", "snaptrade"),
+    ]
+    (fill,) = _on_no_placement(recorder)
+    assert fill.instrument_id == BY_FIGI
+    assert fill.price.currency_code == "CAD"
+    assert recorder.on("ReportMissingInstrument") == []
+
+
+def test_a_bare_symbol_naming_two_listings_is_reported_missing_and_the_fill_waits() -> None:
+    """With no FIGI stated, AAPL alone names two listings: reported missing
+    with SnapTrade's identifiers, the core's ambiguity as the reason, once."""
+    recorder = Recorder("snaptrade")
+    recorder.answer(
+        "ResolveIdentifier",
+        lambda _: ops.ResolveIdentifierResult(
+            found=False, miss_reason=ops.MISS_REASON_AMBIGUOUS
+        ),
+    )
+
+    async def produce() -> None:
+        rig = await originated(recorder)
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    assert _on_no_placement(recorder) == []
+    (missing,) = recorder.on("ReportMissingInstrument")
+    assert missing.reason == ops.MISS_REASON_AMBIGUOUS
+    assert [(i.scheme, i.value) for i in missing.identifiers] == [("symbol", "AAPL")]
+
+
 def test_what_an_order_had_filled_before_the_first_read_is_never_reported() -> None:
     """The account's history, which its custodial statement holds: only
     what fills after the plugin first read the account's orders."""
@@ -580,6 +635,63 @@ def test_the_catalogue_says_snaptrade_takes_no_execution_acknowledgement() -> No
     assert catalogues and all(
         c.execution_acknowledgement == ops.EXECUTION_ACKNOWLEDGEMENT_NONE for c in catalogues
     )
+
+
+def test_every_connection_reports_its_environment_live() -> None:
+    """SnapTrade has no demo environment (contract v26, M4): every code's
+    catalogue, read-only or trading, says its session reached live, which
+    the agents' guard counts as live."""
+    recorder = Recorder("snaptrade")
+    rig = Rig(recorder)
+    asyncio.run(rig.trader.start())
+    catalogues = {
+        c.catalogue.venue_account_code: c.catalogue for c in recorder.on("ReportVenueCatalogue")
+    }
+    assert {ALPACA_CODE, IBKR_CODE} <= set(catalogues)
+    assert ENVIRONMENT == "live"
+    assert {c.environment for c in catalogues.values()} == {"live"}
+    assert catalogues[ALPACA_CODE].order_types and not catalogues[IBKR_CODE].order_types
+
+
+def test_a_good_till_date_order_is_sent_with_its_orders_expire_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At a brokerage offering good till date, the order's expire date is
+    SnapTrade's `expiry_date`."""
+    recorder = Recorder("snaptrade")
+    sent: list[OrderAsked] = []
+
+    async def produce() -> None:
+        rig = Rig(recorder)
+        rig.trading.enable_trading(synthetic.IBKR)
+        taken = rig.venue.place
+
+        async def place(account_id: str, asked: OrderAsked) -> Any:
+            sent.append(asked)
+            return await taken(account_id, asked)
+
+        monkeypatch.setattr(rig.venue, "place", place)
+        held = placement(code=IBKR_CODE, tif=ops.TIME_IN_FORCE_GOOD_TILL_DATE)
+        rig.holds(held)
+        rig.orders[0].expire_date = "2026-12-31"
+        await rig.hear(held)
+
+    asyncio.run(produce())
+    (asked,) = sent
+    assert (asked.time_in_force, asked.body()["expiry_date"]) == ("GTD", "2026-12-31")
+    (acknowledged,) = recorder.on("ReportPlacement")
+    assert acknowledged.event == ops.PLACEMENT_EVENT_ACKNOWLEDGED
+
+
+def test_the_charges_0_18_0_noted_are_never_reported_again(tmp_path: Path) -> None:
+    """0.18.0 noted a charge as `<activity>:<placement>`, the SDK notes it as
+    `<charge>|<placement>`: an upgrade carries each over."""
+    file = tmp_path / "charged.json"
+    file.write_text('["00000000-0000-4000-8000-e00000000001:", "act-2:PLC-1"]')
+    held = charged(file)
+    assert "00000000-0000-4000-8000-e00000000001|" in held
+    assert "act-2|PLC-1" in held
+    assert "act-2|PLC-1" in charged(file), "kept in storage"
 
 
 def test_the_commission_snaptrade_states_on_a_placements_fill_is_a_charge_on_it() -> None:

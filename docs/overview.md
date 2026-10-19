@@ -28,6 +28,11 @@ broker's own app, on a mapped account, for your execution plugin to accept
 to an order or answer DK; SnapTrade is told nothing of either answer, since
 it takes none.
 
+**Every connection is live.** SnapTrade has no demo environment: each
+connection is the brokerage's own account, and the plugin reports it live.
+While the deployment lets agents place orders on demo connections only, an
+agent's new order through SnapTrade is refused; a person's own order is not.
+
 ## What it reads
 
 From SnapTrade, for the connections under your key:

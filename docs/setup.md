@@ -152,6 +152,11 @@ An agent you delegate to can connect a brokerage, link accounts and read
 what you can, through the deployment's tools; the Reference lists them. The
 key is entered only on the Settings form.
 
+Agents place orders on demo connections only while the deployment says so,
+and every SnapTrade connection is live: SnapTrade has no demo environment. So
+an agent's new order through SnapTrade is refused; it can prepare one for a
+person to place. Cancels are never refused.
+
 On a development deployment, **Sample data** serves invented data shaped
 like SnapTrade's, so the plugin can be tried before any key exists. Every
 figure it shows is invented, its pages say so, and it trades with a

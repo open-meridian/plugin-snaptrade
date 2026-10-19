@@ -573,6 +573,8 @@ def test_manage_reads_connections_and_links_and_no_accounts_data(
         "Schwab": "real_time",
         "Fidelity": "real_time",
     }
+    # Every connection live (contract v26): SnapTrade has no demo environment.
+    assert {c["environment"] for c in connections.data["connections"]} == {"live"}
     read = admin.call_tool("read_account_links").data
     assert {each["external_account_id"] for each in read["external_accounts"]} == {
         ALPACA,
