@@ -293,8 +293,10 @@ owner's alone, manual, later.
   refuses either from a connectivity plugin. SnapTrade's account orders
   include orders placed in the broker's own app; one on a mapped account
   that no placement names has each of its fills reported on no placement
-  (ReportExecution naming the venue account code, the instrument its symbol
-  resolves to by the fill's time, the side -- buy, sell or sell short, as
+  (ReportExecution naming the venue account code, the instrument its FIGI
+  and symbol, as SnapTrade states them, resolve to by the fill's time -- a
+  bare symbol can name several share classes or listings -- in the currency
+  SnapTrade states for the listing, the side -- buy, sell or sell short, as
   SnapTrade's action says; an option's opening or closing is not reported
   and said once -- the venue order ID, and the client order ID where
   SnapTrade states one), inferred and derived to its ID as any fill is, with
@@ -1245,7 +1247,8 @@ nothing; by hand, as `meridian plugin migrate` lists it, `trading.py` onto
 `Charged`, `Watched` and their bookkeeping gave way to the SDK's, the plugin
 keeping SnapTrade's venue (`TradingVenue`) and a Trader subclass for what
 SnapTrade decides (trading enabled per connection, a good-till-date order's
-date), the charges 0.18.0 noted carried over to the SDK's notation
+date, a fill on no placement resolved by its FIGI and symbol in the currency
+SnapTrade states), the charges 0.18.0 noted carried over to the SDK's notation
 (`trading.charged`) and its storage files read as they were; the venue's
 environment, `live` (`venue-reports-no-environment`), on its catalogue and
 Connections; the connectivity suite's count with the SDK's

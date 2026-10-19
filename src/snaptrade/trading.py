@@ -53,6 +53,12 @@ does each is the SDK's module's documentation.
   SnapTrade takes no execution acknowledgement (BN) and no DontKnowTrade
   (Q), as the SDK's catalogue says.
 - *A good-till-date order's date*: the order's expire date, sent with it.
+- *The listing a fill on no placement names*: an order placed in the broker's
+  own app is resolved by every identifier SnapTrade states for its symbol --
+  its FIGI and its symbol under SnapTrade's own source -- since SnapTrade
+  spans many brokerages and exchanges and a bare symbol can name several
+  share classes or listings; the fill's currency is the one SnapTrade states
+  for the listing, else the record's. With neither, the fill waits.
 - *Its environment* (contract v26, W11.20; G1 and question M4): SnapTrade
   has no demo environment -- no sandbox host, no paper connection -- so every
   connection is a brokerage's live account. Its catalogue reports `live`
@@ -83,6 +89,7 @@ from meridian.roles.connectivity import (
     Asked,
     Catalogue,
     Change,
+    Originated,
     VenueCharge,
     VenueOrder,
     VenueRefused,
@@ -239,6 +246,23 @@ def orders_of(records: Sequence[Json]) -> list[VenueOrder]:
 
 
 @dataclass(frozen=True)
+class Stated:
+    """What SnapTrade states of an order's listing beyond its symbol: its
+    FIGI and its currency, each "" where it states none."""
+
+    figi: str = ""
+    currency: str = ""
+
+
+def stated_of(record: Json) -> Stated:
+    symbol = _dict(record.get("universal_symbol"))
+    return Stated(
+        figi=str(symbol.get("figi_code") or ""),
+        currency=str(_dict(symbol.get("currency")).get("code") or ""),
+    )
+
+
+@dataclass(frozen=True)
 class Account:
     """One SnapTrade account, as a placement's venue account code names it:
     the external account ID custody reports it under."""
@@ -286,6 +310,9 @@ class TradingVenue:
         self._accounts: dict[str, Account] = {}
         self._read: tuple[Venue, datetime] | None = None
         self._kept: dict[tuple[str, str], tuple[str, str]] = {}
+        #: What SnapTrade last stated of each order's listing, by its
+        #: brokerage order ID (`Stated`).
+        self.stated: dict[str, Stated] = {}
 
     def _snaptrade(self) -> Venue:
         held = self._venue()
@@ -413,6 +440,10 @@ class TradingVenue:
             for listed in records:
                 for scheme, name in seen_in_order(listed):
                     self._plugin.note_not_carried(scheme, name)
+        for record in records:
+            order_id = str(record.get("brokerage_order_id") or "")
+            if order_id:
+                self.stated[order_id] = stated_of(record)
         return orders_of(records), key
 
     async def cancel(self, code: str, order_id: str) -> str:
@@ -614,6 +645,50 @@ class Trader(connectivity.Trader):
                     )
         await super().on_queued(placement, order)
 
+    async def _originated_instrument(
+        self, venue: connectivity.Venue, held: Originated, at: datetime
+    ) -> bool:
+        """The deployment's record an order placed in the broker's own app
+        names, by every identifier SnapTrade states -- its FIGI, then its
+        symbol under SnapTrade's source -- at the fill's time (W3.1), as
+        0.18.0 read it; and the currency its price is in, SnapTrade's for the
+        listing, else the record's. Where they name none, it is reported
+        missing, once, and the fill waits; with no currency, it waits too."""
+        trading = self._trading_venue()
+        stated = (trading.stated if trading is not None else {}).get(
+            held.venue_order_id, Stated()
+        )
+        identifiers: list[ops.Identifier] = []
+        if stated.figi:
+            identifiers.append(ops.Identifier(scheme="figi", value=stated.figi))
+        if held.symbol:
+            identifiers.append(
+                ops.Identifier(scheme="symbol", value=held.symbol, source=SOURCE)
+            )
+        if not identifiers:
+            return False
+        as_of = _ns(at)
+        found = await self._plugin.resolve_identifier(identifiers=identifiers, as_of_ns=as_of)
+        if not (found.found and found.instrument_id):
+            if not held.missing:
+                held.missing = True
+                await self._plugin.report_missing_instrument(
+                    source=SOURCE,
+                    identifiers=identifiers,
+                    as_of_ns=as_of,
+                    reason=found.miss_reason or ops.MISS_REASON_NOT_FOUND,
+                    observed_at_ns=_ns(self._now()),
+                )
+            return False
+        currency = stated.currency
+        if not currency:
+            listed = await self._plugin.resolve_instrument(instrument_id=found.instrument_id)
+            currency = listed.instrument.currency if listed.found else ""
+        if not currency:
+            return False
+        held.instrument_id, held.currency = str(found.instrument_id), currency
+        return True
+
     async def _order_named(self, placement: ops.Placement) -> ops.Order | None:
         listed = await self._plugin.list_orders(account_id=placement.account_id)
         for order in listed.orders:
@@ -621,6 +696,10 @@ class Trader(connectivity.Trader):
                 found: ops.Order = order
                 return found
         return None
+
+
+def _ns(moment: datetime) -> int:
+    return int(moment.timestamp()) * 1_000_000_000 + moment.microsecond * 1000
 
 
 def charged(file: Path | None) -> connectivity.Sent:

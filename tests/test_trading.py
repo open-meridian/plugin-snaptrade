@@ -421,6 +421,72 @@ def test_an_order_placed_in_the_brokers_app_has_its_fills_reported_on_no_placeme
     ]
 
 
+#: Two listings sharing the symbol AAPL -- a share class, a listing elsewhere
+#: -- which only the FIGI SnapTrade states tells apart.
+FIGI = "BBG000B9XRY4"
+BY_FIGI = "INS-01J8XQ4M7K0000000000AAPL"
+
+
+def test_a_fill_on_no_placement_is_resolved_by_the_figi_snaptrade_states() -> None:
+    """SnapTrade spans many brokerages and exchanges: the symbol alone names
+    two listings, so the fill is resolved by every identifier SnapTrade
+    states for the order -- its FIGI first, then its symbol -- and priced in
+    the currency SnapTrade states for the listing."""
+    recorder = Recorder("snaptrade")
+
+    def resolved(params: Any) -> ops.ResolveIdentifierResult:
+        if any(i.scheme == "figi" and i.value == FIGI for i in params.identifiers):
+            return ops.ResolveIdentifierResult(found=True, instrument_id=BY_FIGI)
+        return ops.ResolveIdentifierResult(found=False, miss_reason=ops.MISS_REASON_AMBIGUOUS)
+
+    recorder.answer("ResolveIdentifier", resolved)
+    rig = Rig(recorder)
+
+    async def produce() -> None:
+        await rig.trader.start()
+        await rig.trader.poll()
+        (record,) = [
+            o
+            for o in rig.trading._held["orders"][synthetic.ALPACA_MARGIN]
+            if o["brokerage_order_id"] == synthetic_orders.OUTSIDE_ID
+        ]
+        record["universal_symbol"].update(figi_code=FIGI, currency={"code": "CAD"})
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    (asked,) = recorder.on("ResolveIdentifier")
+    assert [(i.scheme, i.value, i.source) for i in asked.identifiers] == [
+        ("figi", FIGI, ""),
+        ("symbol", "AAPL", "snaptrade"),
+    ]
+    (fill,) = _on_no_placement(recorder)
+    assert fill.instrument_id == BY_FIGI
+    assert fill.price.currency_code == "CAD"
+    assert recorder.on("ReportMissingInstrument") == []
+
+
+def test_a_bare_symbol_naming_two_listings_is_reported_missing_and_the_fill_waits() -> None:
+    """With no FIGI stated, AAPL alone names two listings: reported missing
+    with SnapTrade's identifiers, the core's ambiguity as the reason, once."""
+    recorder = Recorder("snaptrade")
+    recorder.answer(
+        "ResolveIdentifier",
+        lambda _: ops.ResolveIdentifierResult(
+            found=False, miss_reason=ops.MISS_REASON_AMBIGUOUS
+        ),
+    )
+
+    async def produce() -> None:
+        rig = await originated(recorder)
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    assert _on_no_placement(recorder) == []
+    (missing,) = recorder.on("ReportMissingInstrument")
+    assert missing.reason == ops.MISS_REASON_AMBIGUOUS
+    assert [(i.scheme, i.value) for i in missing.identifiers] == [("symbol", "AAPL")]
+
+
 def test_what_an_order_had_filled_before_the_first_read_is_never_reported() -> None:
     """The account's history, which its custodial statement holds: only
     what fills after the plugin first read the account's orders."""

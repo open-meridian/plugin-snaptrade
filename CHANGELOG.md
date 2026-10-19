@@ -14,8 +14,12 @@ Contract v26, on open-meridian 0.31.0 (meridian-design plans/the-v26-build,
   catalogue) under `meridian.roles.connectivity.Trader`, which now does the
   bookkeeping, the firm's controls, changes and venue-originated fills that
   0.18.0 kept by hand. A Trader subclass keeps what SnapTrade decides:
-  trading enabled per connection, and a good-till-date order sent with its
-  expire date. The storage files are read as they were; a charge 0.18.0
+  trading enabled per connection; a good-till-date order sent with its
+  expire date; and a fill of an order placed in the broker's own app
+  resolved, as 0.18.0 resolved it, by every identifier SnapTrade states --
+  its FIGI, then its symbol -- and priced in the currency SnapTrade states
+  for the listing, since a bare symbol can name several share classes or
+  listings across SnapTrade's brokerages. The storage files are read as they were; a charge 0.18.0
   noted is carried over to the SDK's notation, so none is reported twice.
   An order SnapTrade lists `REPLACED` is followed to the order carrying its
   client order ID, rather than reported as a status not mapped.
