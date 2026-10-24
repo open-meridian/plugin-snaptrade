@@ -424,8 +424,10 @@ def test_the_connections_tab_has_no_tiles_but_its_card_rows_and_actions(
         in body
     )
     assert ">Refresh</button>" in body and ">Connect</button>" in body
-    assert body.count('<td class="actions">') == 4
-    assert '<button class="small primary" aria-label="Reconnect' in body
+    # Each row's acts in the kit's row menu (the queued UI fix: Enable
+    # trading was clipped at 1280 px), one open at a time.
+    assert body.count('<td class="more"><details class="menu" name="connection-acts">') == 4
+    assert '<summary aria-label="Actions on Schwab' in body
     assert "Holdings read" not in body and "statement" not in body
     # What the page no longer shows went on the heartbeat with the read.
     (beat,) = sidecar.heartbeats
@@ -717,15 +719,30 @@ def test_the_connections_actions_answer_with_the_pages_token(
 def refresh_button(connection_id: str) -> str:
     return (
         f'<input type="hidden" name="connection_id" value="{connection_id}">'
-        '<button class="small" aria-label="Refresh '
+        '<button aria-label="Refresh '
     )
 
 
 def reconnect_button(connection_id: str) -> str:
     return (
         f'<input type="hidden" name="connection_id" value="{connection_id}">'
-        '<button class="small'
+        '<button aria-label="Reconnect'
     )
+
+
+ENABLE_TRADING_PATH = f"{CONNECTIONS}/enable-trading"
+
+
+def first_in_menu(body: str, connection_id: str) -> str:
+    """The path the first act in a connection's row menu posts to."""
+    found = re.search(
+        r'<div class="menu-pop"><form method="post" action="([^"]+)" class="inline">'
+        r'<input type="hidden" name="csrf" value="[0-9a-f]*">'
+        rf'<input type="hidden" name="connection_id" value="{re.escape(connection_id)}">',
+        body,
+    )
+    assert found is not None
+    return found.group(1)
 
 
 def test_refresh_is_offered_only_where_snaptrade_serves_on_a_delay(server: int) -> None:
@@ -739,10 +756,12 @@ def test_refresh_is_offered_only_where_snaptrade_serves_on_a_delay(server: int) 
     assert refresh_button(synthetic.SCHWAB) not in body
     assert refresh_button(synthetic.FIDELITY) not in body
     assert body.count(REAL_TIME) == 3
-    # Reconnecting is offered to each; it leads where the connection is disabled.
-    for key in (synthetic.ALPACA, synthetic.IBKR):
-        assert f'{reconnect_button(key)}" aria-label="Reconnect' in body
-    assert f'{reconnect_button(synthetic.SCHWAB)} primary" aria-label="Reconnect' in body
+    # Reconnecting is offered to each, in its row menu; it leads the menu
+    # where the connection needs sign-in.
+    for key in (synthetic.ALPACA, synthetic.IBKR, synthetic.SCHWAB):
+        assert reconnect_button(key) in body
+    assert first_in_menu(body, synthetic.SCHWAB) == RECONNECT
+    assert first_in_menu(body, synthetic.IBKR) == REFRESH
 
 
 @pytest.mark.parametrize(
@@ -762,9 +781,28 @@ def test_the_refresh_button_follows_how_snaptrade_serves_the_connection(
     )
     shown = page_for(Status(mode="snaptrade", connections=(connection,)))
     assert (refresh_button("c1") in shown) is offered
-    assert f'{reconnect_button("c1")}" aria-label="Reconnect' in shown
+    assert reconnect_button("c1") in shown
     for line in (REAL_TIME, DELAYED):
         assert (line in shown) is (line == said)
+
+
+def test_enable_trading_is_in_a_read_only_connections_menu_for_connectivitys_admin(
+    server: int,
+) -> None:
+    """Enable trading, per connection (contract v22), sits in each read-only
+    connection's row menu for the connectivity role's admin, posting there;
+    a custody-only admin is offered none."""
+    _, _, body = ask(server, "GET", CONNECTIONS, MANAGER)
+    for key in (synthetic.ALPACA, synthetic.IBKR, synthetic.SCHWAB, synthetic.FIDELITY):
+        assert (
+            f'<input type="hidden" name="connection_id" value="{key}">'
+            '<button aria-label="Enable trading on '
+        ) in body
+    assert body.count(f'action="{ENABLE_TRADING_PATH}"') == 4
+    custody_only = caller_header("admin", subject="local|manager", roles={"custody": "admin"})
+    status, _, body = ask(server, "GET", CONNECTIONS, custody_only)
+    assert status == 200 and "Reconnect" in body
+    assert "Enable trading" not in body
 
 
 def test_a_real_time_connection_is_not_refreshed_by_a_form_from_an_older_page(

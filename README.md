@@ -16,14 +16,19 @@ each version ships with its declaration, which a deployment shows on the
 plugin's Documentation tab (contract v25). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.31.0`, which declares
-contract v26 (meridian-design tasks/sdk-contract/the-analytics-component-
-contract): its connectivity work is the SDK's `meridian.roles.connectivity`
-Trader over SnapTrade's own venue (ruling 213), and its venue catalogue says
-the environment its session reached, live, which the agents' demo-only guard
-reads (spec/the-contract-gaps-v26-and-v27-close, G1). The analytics
-component, event groups and the lake's bounded query change nothing it
-sends. Before it, contract v25 (meridian-design tasks/sdk-contract/plugins-
+It is built on the SDK it pins, `open-meridian==0.32.2`, which declares
+contract v27 (meridian-design plans/the-v27-build; spec/the-contract-gaps-
+v26-and-v27-close, B): its venue catalogue lists the placement types it
+takes, DMA alone, and the SDK resolves a fill on no placement by every
+identifier SnapTrade states for the listing and the currency it states
+(`VenueOrder.identifiers`, `.currency`). The lake's rates, liveness, RFQ
+quotes, TCA and FX netting change nothing it sends, and the latency it would
+report waits for contract v28 (rulings 515 and 518). Before it, contract v26
+(meridian-design tasks/sdk-contract/the-analytics-component-contract): its
+connectivity work is the SDK's `meridian.roles.connectivity` Trader over
+SnapTrade's own venue (ruling 213), and its venue catalogue says the
+environment its session reached, live, which the agents' demo-only guard
+reads (spec/the-contract-gaps-v26-and-v27-close, G1). Before that, contract v25 (meridian-design tasks/sdk-contract/plugins-
 are-shared-and-documented-contract): the version's declaration is the whole of what it says
 about itself -- its settings, its pages and tools, the accounts it names by
 SnapTrade's identifiers, and its documentation in `docs/` by digest -- and a
@@ -176,7 +181,7 @@ owner's alone, manual, later.
 - **A connection is read-only until trading is enabled on it** (step 5's
   Q10). The Connection Portal opens read-only, as before; an admin of the
   plugin's `connectivity` role enables trading per connection on
-  Connections ("Enable trading", the `enable_trading` tool), which opens the
+  Connections (its row menu's "Enable trading", the `enable_trading` tool), which opens the
   Portal to reconnect that brokerage with trading access, its account links
   kept. SnapTrade then lists the connection's type as `trade`. In synthetic
   mode it takes effect at once, as the reconnect would. Every order on a
@@ -296,7 +301,8 @@ owner's alone, manual, later.
   (ReportExecution naming the venue account code, the instrument its FIGI
   and symbol, as SnapTrade states them, resolve to by the fill's time -- a
   bare symbol can name several share classes or listings -- in the currency
-  SnapTrade states for the listing, the side -- buy, sell or sell short, as
+  SnapTrade states for the listing, resolved by the SDK's Trader from what
+  `order_of` reads onto the order (0.32.0), the side -- buy, sell or sell short, as
   SnapTrade's action says; an option's opening or closing is not reported
   and said once -- the venue order ID, and the client order ID where
   SnapTrade states one), inferred and derived to its ID as any fill is, with
@@ -794,8 +800,11 @@ admin (`PageClient(..., deployment_admin=True)`).
   read**, its time, marked an error with why when it failed ("Not yet" before
   any).
 - **Connections** (`/admin/connections`): each brokerage connection with its
-  health, what to do about it, and refreshing or reconnecting it, and the
-  SnapTrade users under the key. **Connect**
+  health, what to do about it, and refreshing, reconnecting or enabling
+  trading on it in its row's menu (the kit's `details.menu`, at the row's
+  end, at every width: from 0.20.0, since "Enable trading" was clipped at
+  1280 px beside the row's other buttons), and the SnapTrade users under
+  the key. **Connect**
   (named "Add a brokerage connection" for assistive technology), in the
   Connections card's header, connects one through SnapTrade's Connection
   Portal (a link that opens outside the dashboard's frame); **Refresh** sits
@@ -963,8 +972,8 @@ as plain JSON, kit 0.3.0's rich cells), its `om-account-map` for linking, its
 `om-status` for the head's dot and a `<time>` for each moment, as the kit's
 patterns write one, and have no style, colour, theme or script of their own:
 each component reads the JSON declared inside it. At a phone's width (390 px)
-every page is one column with no sideways scroll: a connection's or an
-account's actions drop below its text (`.list-row`), the map's rows stack,
+every page is one column with no sideways scroll: a connection's actions
+are in its row's menu, an account's drop below its text, the map's rows stack,
 and a statement's rows are cards. The dashboard draws the plugin's name, the
 way back and the person, and hands the kit the person's colour scheme and
 light or dark. Where the kit is not served the pages still work, unstyled:
@@ -1132,9 +1141,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.31.0`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.31.0`.
-0.31.0 is on PyPI and its base image on ghcr.io, which CI installs.
+The SDK is pinned exactly, `open-meridian==0.32.2`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.32.2`.
+0.32.2 is on PyPI and its base image on ghcr.io, which CI installs.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
 and the check's containers install it from source, and the image is built on
@@ -1255,6 +1264,27 @@ Connections; the connectivity suite's count with the SDK's
 `hears-and-reads-an-event-group`; and `tests/test_contract.py` knowing v26's
 operations and deliveries this plugin does not call. `check.yaml` holds it
 to `meridian` 0.1.49, the first carrying contract v26's suites.
+Moving to 0.32.2 (contract v27) from 0.31.0: `meridian plugin migrate` moved
+the pins and rewrote nothing; by hand, as it lists them, the connectivity
+suite's two new cases not presented (`suite-cases-v27`):
+`records-a-dealers-quote-on-an-rfq-placement`, since SnapTrade takes DMA
+alone, and `reports-a-sessions-round-trip`, "core receives ReportLatency from
+contract v28, ruling 515" (ruling 518); the e2e workflows' logs uploaded with
+`include-hidden-files` (`e2e-hidden-files`); and the README's pins
+(`pin-elsewhere`). Beside them: SnapTrade's own resolution of a fill on no
+placement deleted for the SDK's (the FIGI and currency read onto
+`VenueOrder.identifiers` and `.currency`), its placement types declared
+(`TradingVenue.placement_types`, none beside DMA), and
+`tests/test_contract.py` knowing v27's operations and parameters this plugin
+does not call. The SDK's shared connectivity pages do not apply:
+`trading_pages` declares a Trading page at `/admin/connections`, where
+SnapTrade's Connections already is, and enables trading per account by a note
+in storage, where SnapTrade enables it per connection through its Connection
+Portal; `raw_records_page` declares the plain Raw records, where SnapTrade's
+own is the custody role's page with its per-account reads, kept reads,
+archive and downloads. SnapTrade copied neither, so nothing was deleted.
+`check.yaml` holds it to `meridian` 0.1.52, the first carrying contract v27's
+suites.
 To move to a new SDK release, change all three together and run
 `make ci-local`; `tests/test_contract.py` fails on any operation or parameter
 the new SDK has that this plugin does not know, naming it.
@@ -1269,7 +1299,7 @@ with it (`HARNESS_IMAGE`), which it runs on; below.
 a sidecar, with a broker, the street store and a dashboard, all from the
 released `meridian-runtime` image the `Makefile` pins
 (`RUNTIME_IMAGE`, `<commit>@sha256:<digest>`; the core it names is in the
-`Makefile`, core 17a13a2's contract v26; `make ci-local RUNTIME_IMAGE=...
+`Makefile`, core a5da59a's contract v27; `make ci-local RUNTIME_IMAGE=...
 HARNESS_IMAGE=...` runs against others).
 That deployment is core's **plugin harness**, published beside the runtime
 as its own image of files, `meridian-harness`, at the same commit's tag

@@ -7,13 +7,16 @@ quantity that works or fills), and run through this plugin's own Trader
 (trading.py) against the runner's recorder, as a placement heard is. Only
 the sidecar is stood in for. SIMULATED ONLY: nothing reaches SnapTrade.
 
-Nine cases are not presented, each with why (`NOT_PRESENTED`), as the
+Eleven cases are not presented, each with why (`NOT_PRESENTED`), as the
 suite lets a case marked `about` or `about_field` be: SnapTrade reads no
 calendar's days (it asks the date read for each fill's settlement date),
 offers no locate (so resolves no locate's symbol), states no fill's place of
 execution, places what its `ems` released whatever releases wait for, and
-from contract v23 rolls nothing (its trades settle), and from v24 gives
-nothing up to a prime broker. Every other case
+from contract v23 rolls nothing (its trades settle), from v24 gives
+nothing up to a prime broker, and from v27 asks no dealer for a quote (it
+takes DMA placements alone). The case about latency,
+reports-a-sessions-round-trip, is not presented until contract v28, when
+core receives ReportLatency (rulings 515 and 518). Every other case
 passes: among them v23's venue-originated fills -- an order placed in the
 broker's own app (SYN-OUT-0001), its fills reported on no placement, a later
 one on the placement an accept created, and the commission SnapTrade states
@@ -69,6 +72,15 @@ NOT_PRESENTED = {
     "reports-a-value-date-roll": (
         "SnapTrade's brokerages settle each trade on its settlement date: none rolls a "
         "spot position's value date at a daily cut"
+    ),
+    # Contract v27: its placement types are DMA alone (trading.PLACEMENT_TYPES).
+    "records-a-dealers-quote-on-an-rfq-placement": (
+        "SnapTrade asks no dealer for a quote: it takes DMA placements alone, and an RFQ "
+        "placement is rejected unsupported"
+    ),
+    # Ruling 518: the latency reports wait for contract v28.
+    "reports-a-sessions-round-trip": (
+        "core receives ReportLatency from contract v28, ruling 515"
     ),
 }
 

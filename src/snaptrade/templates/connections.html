@@ -2,14 +2,16 @@
     (meridian/roles/custody/connections.html) -- "No credentials yet" where
     none is set, the notices, then "Connections", a row each: the
     connection, its state, the accounts it reaches and when it was read --
-    with SnapTrade's own beside it: what to do about a connection, Refresh
-    and Reconnect on its row as SnapTrade allows, Refresh and Connect (its
+    with SnapTrade's own beside it: what to do about a connection, and its
+    acts in the kit's row menu at the row's end (Refresh as SnapTrade
+    allows, Reconnect, and Enable trading on a read-only one for the
+    connectivity role's admin) at every width, Refresh and Connect (its
     Connection Portal) in the section's head through the template's
     `action` (Prepare where an act's second pair of eyes is on), and the SnapTrade user section.
     Each connection's environment is Live (contract v26): SnapTrade has no
     demo environment, so the agents' guard counts every connection live; a
     line under the section says so at every width, and a wide screen shows
-    each row's badge too (a phone's row keeps its acts instead).
+    each row's badge too.
     Configuration only: no account's data. `data` is
     records.ConnectionsRead, read_connections's answer. -#}
 {% extends "meridian/roles/custody/connections.html" %}
@@ -17,15 +19,20 @@
 {% block status %}{{ ui.status_dot(dot) }}{% endblock %}
 {% block vendor_notices %}{{ ui.notices(notice, portal, waiting, error) }}{% endblock %}
 {% block vendor_columns %}
-{%- if row is none %}<th class="wide-only">Environment</th><th class="wide-only">What to do</th><th class="actions"><span class="visually-hidden">Actions</span></th>
-{%- else %}{% set it = shown[row.connection_id] %}<td class="wide-only">{{ ui.badge(it.environment) }}</td><td class="wide-only"><span class="hint">{{ it.said }}{% if it.said and it.refreshing %} {% endif %}{{ it.refreshing }}</span></td><td class="actions">
-{#- On a phone a row keeps Reconnect; a delayed connection's Refresh is
-    the wide screen's (the section head's Refresh reads every one). -#}
-{%- if it.refresh %}<span class="wide-only">{{ ui.act(paths.refresh, "Refresh", "refresh_connection", caller.second_pair_of_eyes, "small", fields={"connection_id": row.connection_id}, label="Refresh " ~ row.connection) }}</span>{% endif %}
-{{ ui.act(paths.reconnect, "Reconnect", "reconnect_connection", caller.second_pair_of_eyes, ("small " ~ it.reconnect)|trim, fields={"connection_id": row.connection_id}, label="Reconnect " ~ row.connection) }}
-{#- Trading is enabled per connection by the connectivity role's admin
-    (contract v22; step 5's Q10): read-only until then. -#}
-{%- if not it.trading and caller.level_for(connectivity) == admin_level %} {{ ui.act(paths.enable_trading, "Enable trading", "enable_trading", caller.second_pair_of_eyes, "small", fields={"connection_id": row.connection_id}, label="Enable trading on " ~ row.connection) }}{% endif %}</td>
+{%- if row is none %}<th class="wide-only">Environment</th><th class="wide-only">What to do</th><th class="more"><span class="visually-hidden">Actions</span></th>
+{%- else %}{% set it = shown[row.connection_id] %}<td class="wide-only">{{ ui.badge(it.environment) }}</td><td class="wide-only"><span class="hint">{{ it.said }}{% if it.said and it.refreshing %} {% endif %}{{ it.refreshing }}</span></td><td class="more">
+{#- The row's acts in the kit's row menu (a `details.menu`), one line at
+    every width: Reconnect first where the connection needs sign-in;
+    Refresh where SnapTrade serves it on a delay; Enable trading on a
+    read-only one, per connection, by the connectivity role's admin
+    (contract v22; step 5's Q10). -#}
+<details class="menu" name="connection-acts"><summary aria-label="Actions on {{ row.connection }}">…</summary><div class="menu-pop">
+{%- set reconnect = ui.act(paths.reconnect, "Reconnect", "reconnect_connection", caller.second_pair_of_eyes, fields={"connection_id": row.connection_id}, label="Reconnect " ~ row.connection) %}
+{%- if it.reconnect %}{{ reconnect }}{% endif %}
+{%- if it.refresh %}{{ ui.act(paths.refresh, "Refresh", "refresh_connection", caller.second_pair_of_eyes, fields={"connection_id": row.connection_id}, label="Refresh " ~ row.connection) }}{% endif %}
+{%- if not it.reconnect %}{{ reconnect }}{% endif %}
+{%- if not it.trading and caller.level_for(connectivity) == admin_level %}{{ ui.act(paths.enable_trading, "Enable trading", "enable_trading", caller.second_pair_of_eyes, fields={"connection_id": row.connection_id}, label="Enable trading on " ~ row.connection) }}{% endif %}
+</div></details></td>
 {%- endif %}
 {% endblock %}
 {% block vendor_sections %}

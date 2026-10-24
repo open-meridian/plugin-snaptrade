@@ -53,12 +53,20 @@ does each is the SDK's module's documentation.
   SnapTrade takes no execution acknowledgement (BN) and no DontKnowTrade
   (Q), as the SDK's catalogue says.
 - *A good-till-date order's date*: the order's expire date, sent with it.
-- *The listing a fill on no placement names*: an order placed in the broker's
-  own app is resolved by every identifier SnapTrade states for its symbol --
-  its FIGI and its symbol under SnapTrade's own source -- since SnapTrade
+- *The listing a fill on no placement names*: what SnapTrade states of an
+  order's listing beyond its symbol -- its FIGI, and the currency its price
+  is in -- is read onto the order (`VenueOrder.identifiers`, `.currency`),
+  and the SDK resolves an order placed in the broker's own app by all of
+  them and its symbol under SnapTrade's own source (0.32.0), since SnapTrade
   spans many brokerages and exchanges and a bare symbol can name several
-  share classes or listings; the fill's currency is the one SnapTrade states
-  for the listing, else the record's. With neither, the fill waits.
+  share classes or listings; the fill is priced in the stated currency, else
+  the record's. Where they name no record, it is reported missing and the
+  fill waits. (0.19.0 did this in its own code; the SDK's is the same.)
+- *Its placement types* (contract v27, W11.20): DMA alone
+  (`PLACEMENT_TYPES`, beside DMA none). `POST /trade/place` sends an order
+  straight to the brokerage: SnapTrade works no broker algorithm, takes no
+  care order for a broker's desk and asks no dealer for a quote, so an algo,
+  care or RFQ placement is rejected `unsupported`, nothing sent.
 - *Its environment* (contract v26, W11.20; G1 and question M4): SnapTrade
   has no demo environment -- no sandbox host, no paper connection -- so every
   connection is a brokerage's live account. Its catalogue reports `live`
@@ -89,7 +97,6 @@ from meridian.roles.connectivity import (
     Asked,
     Catalogue,
     Change,
-    Originated,
     VenueCharge,
     VenueOrder,
     VenueRefused,
@@ -151,6 +158,11 @@ TIMES_IN_FORCE: dict[int, str] = {
     ops.TIME_IN_FORCE_FILL_OR_KILL: "FOK",
     ops.TIME_IN_FORCE_GOOD_TILL_DATE: "GTD",
 }
+#: The placement types SnapTrade takes beside DMA (contract v27): none.
+#: `POST /trade/place` is direct market access through the brokerage --
+#: no broker algorithm, care desk or request for quote.
+PLACEMENT_TYPES: tuple[int, ...] = ()
+
 #: The sides SnapTrade places: buys and sells, no short sale.
 ACTIONS: dict[int, str] = {ops.SIDE_BUY: "BUY", ops.SIDE_SELL: "SELL"}
 FROM_ORDER_TYPE: dict[str, int] = {said: ours for ours, said in ORDER_TYPES.items()}
@@ -223,7 +235,26 @@ def order_of(record: Json) -> VenueOrder:
         updated_at=connectivity.moment(record.get("time_updated")),
         filled_at=connectivity.moment(record.get("time_executed")),
         market_zone=_zone(record),
+        # What SnapTrade states of the listing beyond its symbol (SDK 0.32.0
+        # resolves a venue-originated order by all of it): its FIGI, and the
+        # currency its price is in.
+        identifiers=_identifiers(record),
+        currency=_currency(record),
     )
+
+
+def _currency(record: Json) -> str:
+    """The currency SnapTrade states an order's listing is priced in, "" for
+    none."""
+    symbol = _dict(record.get("universal_symbol"))
+    return str(_dict(symbol.get("currency")).get("code") or "")
+
+
+def _identifiers(record: Json) -> tuple[ops.Identifier, ...]:
+    """Every identifier SnapTrade states for an order's listing beside its
+    symbol: its FIGI, where it states one."""
+    figi = str(_dict(record.get("universal_symbol")).get("figi_code") or "")
+    return (ops.Identifier(scheme="figi", value=figi),) if figi else ()
 
 
 def orders_of(records: Sequence[Json]) -> list[VenueOrder]:
@@ -243,23 +274,6 @@ def orders_of(records: Sequence[Json]) -> list[VenueOrder]:
             read[before] = replace(read[before], replaced_by=read[after].order_id)
             read[after] = replace(read[after], replaces=read[before].order_id)
     return read
-
-
-@dataclass(frozen=True)
-class Stated:
-    """What SnapTrade states of an order's listing beyond its symbol: its
-    FIGI and its currency, each "" where it states none."""
-
-    figi: str = ""
-    currency: str = ""
-
-
-def stated_of(record: Json) -> Stated:
-    symbol = _dict(record.get("universal_symbol"))
-    return Stated(
-        figi=str(symbol.get("figi_code") or ""),
-        currency=str(_dict(symbol.get("currency")).get("code") or ""),
-    )
 
 
 @dataclass(frozen=True)
@@ -310,9 +324,6 @@ class TradingVenue:
         self._accounts: dict[str, Account] = {}
         self._read: tuple[Venue, datetime] | None = None
         self._kept: dict[tuple[str, str], tuple[str, str]] = {}
-        #: What SnapTrade last stated of each order's listing, by its
-        #: brokerage order ID (`Stated`).
-        self.stated: dict[str, Stated] = {}
 
     def _snaptrade(self) -> Venue:
         held = self._venue()
@@ -367,6 +378,12 @@ class TradingVenue:
         """Whether trading is enabled on the account's connection."""
         held = self.account(code)
         return held is not None and held.trading
+
+    def placement_types(self, code: str) -> tuple[int, ...]:
+        """The placement types SnapTrade takes beside DMA: none
+        (`PLACEMENT_TYPES`). The SDK lists DMA on an account with trading
+        enabled, and none on a read-only one."""
+        return PLACEMENT_TYPES
 
     def catalogue(self, code: str) -> Catalogue:
         """What SnapTrade offers on an account: what its `POST /trade/place`
@@ -440,10 +457,6 @@ class TradingVenue:
             for listed in records:
                 for scheme, name in seen_in_order(listed):
                     self._plugin.note_not_carried(scheme, name)
-        for record in records:
-            order_id = str(record.get("brokerage_order_id") or "")
-            if order_id:
-                self.stated[order_id] = stated_of(record)
         return orders_of(records), key
 
     async def cancel(self, code: str, order_id: str) -> str:
@@ -613,7 +626,9 @@ class Trader(connectivity.Trader):
     whose connection SnapTrade lists with trading access, never by a note in
     storage (the Connections page's "Enable trading" reconnects it); and a
     queued placement reads SnapTrade's accounts afresh and carries its
-    order's expire date to a good-till-date order."""
+    order's expire date to a good-till-date order. A venue-originated
+    order's listing is the SDK's to resolve (0.32.0), from what `order_of`
+    reads onto it."""
 
     def __init__(
         self,
@@ -645,50 +660,6 @@ class Trader(connectivity.Trader):
                     )
         await super().on_queued(placement, order)
 
-    async def _originated_instrument(
-        self, venue: connectivity.Venue, held: Originated, at: datetime
-    ) -> bool:
-        """The deployment's record an order placed in the broker's own app
-        names, by every identifier SnapTrade states -- its FIGI, then its
-        symbol under SnapTrade's source -- at the fill's time (W3.1), as
-        0.18.0 read it; and the currency its price is in, SnapTrade's for the
-        listing, else the record's. Where they name none, it is reported
-        missing, once, and the fill waits; with no currency, it waits too."""
-        trading = self._trading_venue()
-        stated = (trading.stated if trading is not None else {}).get(
-            held.venue_order_id, Stated()
-        )
-        identifiers: list[ops.Identifier] = []
-        if stated.figi:
-            identifiers.append(ops.Identifier(scheme="figi", value=stated.figi))
-        if held.symbol:
-            identifiers.append(
-                ops.Identifier(scheme="symbol", value=held.symbol, source=SOURCE)
-            )
-        if not identifiers:
-            return False
-        as_of = _ns(at)
-        found = await self._plugin.resolve_identifier(identifiers=identifiers, as_of_ns=as_of)
-        if not (found.found and found.instrument_id):
-            if not held.missing:
-                held.missing = True
-                await self._plugin.report_missing_instrument(
-                    source=SOURCE,
-                    identifiers=identifiers,
-                    as_of_ns=as_of,
-                    reason=found.miss_reason or ops.MISS_REASON_NOT_FOUND,
-                    observed_at_ns=_ns(self._now()),
-                )
-            return False
-        currency = stated.currency
-        if not currency:
-            listed = await self._plugin.resolve_instrument(instrument_id=found.instrument_id)
-            currency = listed.instrument.currency if listed.found else ""
-        if not currency:
-            return False
-        held.instrument_id, held.currency = str(found.instrument_id), currency
-        return True
-
     async def _order_named(self, placement: ops.Placement) -> ops.Order | None:
         listed = await self._plugin.list_orders(account_id=placement.account_id)
         for order in listed.orders:
@@ -696,10 +667,6 @@ class Trader(connectivity.Trader):
                 found: ops.Order = order
                 return found
         return None
-
-
-def _ns(moment: datetime) -> int:
-    return int(moment.timestamp()) * 1_000_000_000 + moment.microsecond * 1000
 
 
 def charged(file: Path | None) -> connectivity.Sent:
@@ -724,6 +691,7 @@ def storage_base(raw: RawStore | None) -> Path | None:
 
 __all__ = [
     "ENVIRONMENT",
+    "PLACEMENT_TYPES",
     "POLL_SECONDS",
     "SYNTHETIC_POLL_SECONDS",
     "Account",

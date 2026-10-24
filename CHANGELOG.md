@@ -3,6 +3,52 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
+## 0.20.0
+
+Contract v27, on open-meridian 0.32.2 (meridian-design plans/the-v27-build,
+§G; spec/the-contract-gaps-v26-and-v27-close, B).
+
+- **A fill on no placement, resolved by the SDK** (0.32.0): SnapTrade's own
+  resolution, which 0.19.0 restored in its code (its FIGI and stated
+  currency, kept beside each order), is deleted. `order_of` reads what
+  SnapTrade states of an order's listing onto the order
+  (`VenueOrder.identifiers`, its FIGI; `.currency`), and the SDK's Trader
+  resolves it by all of them and the symbol under SnapTrade's source, priced
+  in the stated currency, else the record's. The tests that held 0.19.0's
+  resolution pass unchanged.
+- **Placement types** (contract v27, W11.20): DMA alone. SnapTrade's
+  `POST /trade/place` sends an order straight to the brokerage -- no broker
+  algorithm, care desk or request for quote -- so a trading account's
+  catalogue lists `PLACEMENT_TYPE_DMA`, a read-only one none, and an algo,
+  care or RFQ placement is rejected `unsupported`, nothing sent.
+- **Connections' row actions in the kit's row menu**: Reconnect (first
+  where the connection needs sign-in), Refresh (on a delayed connection) and
+  Enable trading (for the connectivity role's admin, on a read-only one) sit
+  in each row's `…` menu at every width, one menu open at a time. "Enable
+  trading" was clipped at 1280 px beside the row's other buttons; a phone
+  now offers a delayed connection's Refresh too.
+- **The suites**: the connectivity suite's
+  `records-a-dealers-quote-on-an-rfq-placement` not presented (SnapTrade
+  takes DMA alone), and `reports-a-sessions-round-trip` not presented, "core
+  receives ReportLatency from contract v28, ruling 515" (ruling 518);
+  `tests/test_contract.py` knows v27's operations and parameters this
+  plugin does not call. Nothing sends `report_latency`.
+- **The SDK's shared connectivity pages do not apply**: `trading_pages`
+  would declare Trading at `/admin/connections`, where SnapTrade's
+  Connections is, and enables trading per account by a note in storage,
+  where SnapTrade enables it per connection through its Connection Portal;
+  `raw_records_page` is the plain Raw records, where SnapTrade's is the
+  custody role's page with per-account reads, kept reads, the archive and
+  downloads. Neither was copied here, so nothing is deleted.
+- **Agents trade demo only**: unchanged. Every connection reports `live`,
+  so the agents' guard refuses an agent's new placement on SnapTrade.
+- **The pins**: open-meridian 0.32.2 and plugin-python:0.32.2, core v27's
+  runtime and harness (core a5da59a, merged as 6d346b3, chart 0.1.310, by
+  tag and digest), and `meridian` 0.1.52 in `check.yaml`; the e2e
+  workflows upload `.e2e/` logs with `include-hidden-files`.
+- **Docs**: Pages says where each connection's actions are; Overview says
+  it places DMA alone.
+
 ## 0.19.0
 
 Contract v26, on open-meridian 0.31.0 (meridian-design plans/the-v26-build,
