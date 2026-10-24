@@ -28,6 +28,12 @@ broker's own app, on a mapped account, for your execution plugin to accept
 to an order or answer DK; SnapTrade is told nothing of either answer, since
 it takes none.
 
+It sends orders straight to the brokerage (direct market access): SnapTrade
+works no broker algorithm, takes no care order for a broker's desk and asks
+no dealer for a quote, so each account it trades lists DMA as its one
+placement type, and a placement of another type is rejected as unsupported,
+nothing sent.
+
 **Every connection is live.** SnapTrade has no demo environment: each
 connection is the brokerage's own account, and the plugin reports it live.
 While the deployment lets agents place orders on demo connections only, an

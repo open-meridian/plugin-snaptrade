@@ -26,11 +26,15 @@ environment.
 
 - **Connect** connects a brokerage through SnapTrade's Connection Portal.
 - **Refresh**, in the card's header, reads SnapTrade now.
-- **Refresh** on a connection asks SnapTrade to read that brokerage again.
-  Offered only where SnapTrade serves the connection from its cache; it may
-  charge for each.
+
+Each connection's own actions are in its row's menu (**…**, at the end of
+the row), at every width:
+
 - **Reconnect** opens the Connection Portal to sign in to the brokerage
-  again.
+  again. It comes first where the connection needs sign-in.
+- **Refresh** asks SnapTrade to read that brokerage again. Offered only
+  where SnapTrade serves the connection from its cache; it may charge for
+  each.
 - **Enable trading**, for an admin of the plugin's connectivity role, on
   each read-only connection ([Setup](setup.md), step 5).
 

@@ -625,6 +625,9 @@ KNOWN_PARAMETERS = {
     },
     "list_statements": {"account_id", "as_of_date", "cursor", "page_size", "since"},
     "receive": {
+        # v27: a rate and a dataset's liveness heard, a reading role's.
+        "rates_recorded",
+        "liveness_recorded",
         "custodial_position_updated",
         "seed",
         "statement_recorded",
@@ -853,6 +856,8 @@ KNOWN_PARAMETERS = {
         "venue_order_id",
     },
     "report_execution": {
+        # v27: an FX cross's rate source, a netting venue's.
+        "cross_rate_source",
         "account_id",
         "acting_for",
         "computed_settlement_date",
@@ -935,6 +940,13 @@ KNOWN_PARAMETERS = {
         "venue_order_id",
     },
     "create_placement": {
+        # v27: the placement type and a manual placement's trade details, the ems's;
+        # a stale reference price's, the ems's check.
+        "placement_type",
+        "agreed_at_ns",
+        "agreed_precision",
+        "counterparty_contact",
+        "stale_reference",
         "acting_for",
         "axe_id",
         "connectivity_instance_id",
@@ -972,6 +984,9 @@ KNOWN_PARAMETERS = {
         "venue_account_code",
     },
     "propose_order": {
+        # v27: FX netting's members and value date, the oms's.
+        "net_member_order_ids",
+        "value_date",
         "account_id",
         # v24: a block's member orders, the oms's to name.
         "block_member_order_ids",
@@ -1015,6 +1030,9 @@ KNOWN_PARAMETERS = {
     "release_order": {"acting_for", "idempotency_key", "order_id"},
     "request_order_change": {"acting_for", "change", "idempotency_key", "order_id", "reason"},
     "set_working_condition": {
+        # v27: a hold's cause and a stale reference price, the ems's.
+        "hold_cause",
+        "stale_reference",
         "acting_for",
         "condition",
         "idempotency_key",
@@ -1116,6 +1134,8 @@ KNOWN_PARAMETERS = {
     "list_price_batches": {"after_sequence"},
     "answer_price_batch": {"acting_for", "batch_id", "sensitivities", "values"},
     "report_event_group": {
+        # v27: a range member's bounds, an event-contract venue's.
+        "member_bounds",
         "acting_for",
         "exhaustive",
         "member_instrument_ids",
@@ -1147,6 +1167,60 @@ KNOWN_PARAMETERS = {
         "valid_from_ns",
         "valid_until_ns",
     },
+    # Known, and not used (v27): an RFQ placement's dealers' quotes and the
+    # pick are an RFQ venue's and the ems's, and SnapTrade takes DMA alone;
+    # the lake's rates and a dataset's liveness are a data plugin's, and the
+    # rates and execution costs read are the reading roles'; latency is not
+    # reported until contract v28 (rulings 515 and 518), never sent by hand.
+    "report_placement_quote": {
+        "acting_for",
+        "dealer_id",
+        "dealer_quote_id",
+        "idempotency_key",
+        "outcome",
+        "placement_id",
+        "price",
+        "quantity",
+        "quote_id",
+        "raw_record",
+        "received_at_ns",
+        "side",
+        "valid_until_ns",
+    },
+    "pick_placement_quote": {
+        "acting_for",
+        "idempotency_key",
+        "placement_id",
+        "quote_id",
+        "reason",
+    },
+    "record_rates": {"acting_for", "rates", "want_id"},
+    "record_liveness": {"acting_for", "liveness"},
+    "list_rates": {
+        "as_of_ns",
+        "at_ns",
+        "business_date",
+        "cursor",
+        "kinds",
+        "page_size",
+        "published_as_of_ns",
+        "sources",
+        "subjects",
+        "tenors",
+        "valid_from_ns",
+        "valid_until_ns",
+    },
+    "list_execution_costs": {
+        "account_id",
+        "as_of_ns",
+        "benchmarks",
+        "cursor",
+        "execution_ids",
+        "order_id",
+        "page_size",
+        "trade_date",
+    },
+    "report_latency": {"acting_for", "snapshots"},
 }
 
 

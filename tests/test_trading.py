@@ -2,7 +2,8 @@
 venue) beyond what the suite asks: that a placement is never sent twice,
 that a held placement is sent once the pause lifts, that a fill waits for its
 settlement date rather than guess one, SnapTrade's replaces and venue-
-originated fills, and its environment, live. How a fill's price and ID are
+originated fills, its environment, live, and its placement types, DMA
+alone. How a fill's price and ID are
 derived is the SDK's, tested there. SIMULATED ONLY: the synthetic brokerage
 stands in for SnapTrade, the suites' recorder for the sidecar."""
 
@@ -651,6 +652,43 @@ def test_every_connection_reports_its_environment_live() -> None:
     assert ENVIRONMENT == "live"
     assert {c.environment for c in catalogues.values()} == {"live"}
     assert catalogues[ALPACA_CODE].order_types and not catalogues[IBKR_CODE].order_types
+
+
+def test_the_catalogue_lists_dma_alone_and_none_on_a_read_only_connection() -> None:
+    """SnapTrade's placement types (contract v27): `POST /trade/place` is
+    direct market access through the brokerage, so a trading account's
+    catalogue lists DMA alone, and a read-only one none."""
+    recorder = Recorder("snaptrade")
+    rig = Rig(recorder)
+    asyncio.run(rig.trader.start())
+    catalogues = {
+        c.catalogue.venue_account_code: c.catalogue for c in recorder.on("ReportVenueCatalogue")
+    }
+    assert list(catalogues[ALPACA_CODE].placement_types) == [ops.PLACEMENT_TYPE_DMA]
+    assert list(catalogues[IBKR_CODE].placement_types) == []
+
+
+@pytest.mark.parametrize(
+    "kind", [ops.PLACEMENT_TYPE_ALGO, ops.PLACEMENT_TYPE_CARE, ops.PLACEMENT_TYPE_RFQ]
+)
+def test_a_placement_type_snaptrade_does_not_take_is_rejected_unsupported(
+    kind: ops.PlacementType,
+) -> None:
+    """An algo, care or RFQ placement: rejected unsupported, nothing sent."""
+    recorder = Recorder("snaptrade")
+    held = placement()
+    held.placement_type = kind
+
+    async def produce() -> None:
+        rig = Rig(recorder)
+        rig.holds(held)
+        await rig.hear(held)
+        assert rig.trading.orders(synthetic.ALPACA_MARGIN, "") == [], "nothing placed"
+
+    asyncio.run(produce())
+    (rejected,) = recorder.on("ReportPlacement")
+    assert rejected.event == ops.PLACEMENT_EVENT_REJECTED
+    assert rejected.rejection_reason == ops.REJECTION_REASON_UNSUPPORTED
 
 
 def test_a_good_till_date_order_is_sent_with_its_orders_expire_date(
