@@ -311,12 +311,22 @@ FUND = position(
     instrument={"kind": "mutualfund", "description": "Synthetic money market fund"},
 )
 
-#: Contract v22's calendar case SnapTrade does not present, and why.
+#: Contract v22's calendar case SnapTrade does not present, and why; and from
+#: contract v28 an assignment (about options; ruling 602), named through a
+#: table because meridian 0.1.52's check holds contract v27's suites.
 NOT_PRESENTED = {
     "reads-a-calendar": (
         "SnapTrade asks the date read for each fill's settlement date (ComputeDate); it "
         "reads no calendar's days"
     ),
+    **{
+        case: (
+            "this version reports an option's assignment, exercise or expiry as an activity "
+            "of a kind not known, SnapTrade's type beside it (activities.py), never as a "
+            "lifecycle event (ruling 563): that is a later version's"
+        )
+        for case in ("reports-an-assignment",)
+    },
 }
 
 PRODUCERS: dict[str, Callable[[Recorder], Coroutine[Any, Any, None]]] = {

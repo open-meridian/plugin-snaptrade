@@ -152,9 +152,11 @@ class Rig:
         sent: Sent | None = None,
         mapped: tuple[str, ...] = (ALPACA_CODE,),
         watched: Path | None = None,
+        latency: Any = None,
     ) -> None:
         self.recorder = recorder
         self.sent = sent
+        self.latency = latency
         # Where the venue-originated orders and the charges are noted, kept
         # across a restart (`make`) as the plugin's storage keeps them.
         self.watched = watched
@@ -193,6 +195,7 @@ class Rig:
             scope=lambda: self.scope,
             watched=Watched(self.watched / "originated.json" if self.watched else None),
             charged=charged(self.watched / "charged.json" if self.watched else None),
+            latency=self.latency,
         )
         trader.started.set()
         return trader
