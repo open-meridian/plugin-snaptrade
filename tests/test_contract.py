@@ -1224,6 +1224,139 @@ KNOWN_PARAMETERS = {
 }
 
 
+# Contract v28 (open-meridian 0.33.x), decided: none of what it adds is this
+# plugin's -- custody and connectivity here read no chain, filing, company,
+# derived series, scenario or lifecycle event, propose nothing and report no
+# package fill -- so each operation and parameter is known and left unused.
+KNOWN_PARAMETERS.update(
+    {
+        "list_corporate_actions": {
+            "after_watermark",
+            "as_of_ns",
+            "cursor",
+            "from_date",
+            "kinds",
+            "page_size",
+            "published_as_of_ns",
+            "sources",
+            "subjects",
+            "to_date",
+        },
+        "list_derived_series": {"from_date", "series", "subjects", "to_date"},
+        "list_filings": {
+            "after_watermark",
+            "as_of_ns",
+            "cursor",
+            "from_date",
+            "kinds",
+            "page_size",
+            "published_as_of_ns",
+            "sources",
+            "subjects",
+            "to_date",
+        },
+        "list_holdings": {
+            "as_of_ns",
+            "cursor",
+            "from_date",
+            "kinds",
+            "page_size",
+            "published_as_of_ns",
+            "sources",
+            "subjects",
+            "to_date",
+        },
+        "list_lifecycle_events": {
+            "account_id",
+            "cursor",
+            "from_date",
+            "instrument_id",
+            "kinds",
+            "page_size",
+            "since",
+            "to_date",
+        },
+        "list_rating_actions": {
+            "as_of_ns",
+            "cursor",
+            "from_date",
+            "kinds",
+            "page_size",
+            "published_as_of_ns",
+            "sources",
+            "subjects",
+            "to_date",
+        },
+        "list_reported_facts": {
+            "as_of_ns",
+            "concepts",
+            "cursor",
+            "from_date",
+            "page_size",
+            "published_as_of_ns",
+            "sources",
+            "subjects",
+            "to_date",
+        },
+        "list_scenarios": {"row_keys", "version"},
+        "list_series": {
+            "as_of_ns",
+            "cursor",
+            "expiration_from",
+            "expiration_to",
+            "instrument_type",
+            "page_size",
+            "series_keys",
+            "sources",
+            "subjects",
+        },
+        "list_statistics": {
+            "all_series",
+            "as_of_ns",
+            "business_date",
+            "cursor",
+            "from_date",
+            "kinds",
+            "page_size",
+            "series_keys",
+            "sources",
+            "subjects",
+            "to_date",
+        },
+        "propose_lifecycle_events": {"acting_for", "events"},
+        "read_stale_reference_actions_permitted": set(),
+        "record_corporate_actions": {"acting_for", "actions", "want_id"},
+        "record_derived_series": {"acting_for", "values"},
+        "record_filings": {"acting_for", "filings", "want_id"},
+        "record_holdings": {"acting_for", "holdings", "want_id"},
+        "record_holdings_reports": {"acting_for", "reports", "want_id"},
+        "record_lifecycle_event": {"acting_for", "event", "idempotency_key"},
+        "record_quality_assessments": {"acting_for", "assessments"},
+        "record_rating_actions": {"acting_for", "actions", "want_id"},
+        "record_reported_facts": {"acting_for", "facts", "want_id"},
+        "record_scenarios": {"acting_for", "scenarios"},
+        "record_series": {"acting_for", "series", "want_id"},
+        "record_statistics": {"acting_for", "statistics", "want_id"},
+        "release_lifecycle_event": {"acting_for", "event_id", "note"},
+        "request_series_records": {"acting_for", "note", "series"},
+        "resolve_company": {"as_of_ns", "company_id", "identifiers"},
+    }
+)
+for _name, _added in {
+    "list_quotes": {"all_series", "series_keys"},
+    "list_trades": {"all_series", "series_keys"},
+    "propose_order": {"position_effect"},
+    "receive": {
+        "corporate_actions_recorded",
+        "filings_recorded",
+        "lifecycle_event_recorded",
+        "statistics_recorded",
+    },
+    "report_execution": {"multi_leg_reporting_type", "package_execution_id"},
+}.items():
+    KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
+
+
 def test_the_pinned_sdk_has_no_operation_or_parameter_this_plugin_does_not_know() -> None:
     import inspect
 

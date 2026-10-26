@@ -3,6 +3,29 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
+## 0.21.0
+
+Contract v28, on open-meridian 0.33.1 (plugin-common-v28), on core v28's
+harness.
+
+- **The session's latency, reported** (ruling 518, required again from
+  contract v28): `__main__` gives the SDK's Trader a `roles.Latency`, so each
+  call to SnapTrade's trading API has its round trip recorded, a placement
+  its acknowledgement and a fill its delay, reported every 10 seconds
+  (`ReportLatency`); `reports-a-sessions-round-trip` is presented.
+- **Not presented** (ruling 602): connectivity -- an option's expiry and a
+  package's fill (it places single-leg equity orders); custody -- an
+  assignment: this version reports a broker's option assignment, exercise
+  or expiry as an activity of a kind not known, SnapTrade's type beside it,
+  never as a lifecycle event (ruling 563), a later version's work.
+- **tests/test_contract.py**: the SDK's v28 operations and parameters
+  (chains, filings, lifecycle events, derived series, scenarios, packages'
+  fields, the stale-reference read) known and unused.
+- **The pins:** open-meridian 0.33.1 and plugin-python:0.33.1 by tag and
+  digest; core v28's runtime and harness at `8def82a` (chart 0.1.313) by
+  digest; `meridian` stays 0.1.52 in check.yaml.
+- The README's "not released" is gone, and its release number current.
+
 ## 0.20.0
 
 Contract v27, on open-meridian 0.32.2 (meridian-design plans/the-v27-build,

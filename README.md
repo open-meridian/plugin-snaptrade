@@ -10,20 +10,21 @@ custodian states it. It holds the `custody` role, and from contract v22 the
 at SnapTrade's trading API and reports what SnapTrade did with them
 ("Trading", below), and from contract v23 the fills of orders placed in a
 broker's own app, for the `ems` to accept or answer DK. This is release
-0.18.0, not released (CHANGELOG.md says what each release changed). How to set it up and use it,
+0.21.0 (CHANGELOG.md says what each release changed). How to set it up and use it,
 for its admin and its readers, is in [docs/](docs/README.md): the sections
 each version ships with its declaration, which a deployment shows on the
 plugin's Documentation tab (contract v25). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.32.2`, which declares
-contract v27 (meridian-design plans/the-v27-build; spec/the-contract-gaps-
+It is built on the SDK it pins, `open-meridian==0.33.1`, which declares
+contract v28: the Trader's session latency -- each trading call's round
+trip, a placement's acknowledgement, a fill's delay -- reported every 10
+seconds (rulings 515 and 518). Before it, contract v27 (meridian-design plans/the-v27-build; spec/the-contract-gaps-
 v26-and-v27-close, B): its venue catalogue lists the placement types it
 takes, DMA alone, and the SDK resolves a fill on no placement by every
 identifier SnapTrade states for the listing and the currency it states
 (`VenueOrder.identifiers`, `.currency`). The lake's rates, liveness, RFQ
-quotes, TCA and FX netting change nothing it sends, and the latency it would
-report waits for contract v28 (rulings 515 and 518). Before it, contract v26
+quotes, TCA and FX netting change nothing it sends. Before it, contract v26
 (meridian-design tasks/sdk-contract/the-analytics-component-contract): its
 connectivity work is the SDK's `meridian.roles.connectivity` Trader over
 SnapTrade's own venue (ruling 213), and its venue catalogue says the
@@ -1141,9 +1142,10 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.32.2`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.32.2`.
-0.32.2 is on PyPI and its base image on ghcr.io, which CI installs.
+The SDK is pinned exactly, `open-meridian==0.33.1`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.33.1`,
+by its digest. 0.33.1 is on PyPI and its base image on ghcr.io, which CI
+installs.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
 and the check's containers install it from source, and the image is built on

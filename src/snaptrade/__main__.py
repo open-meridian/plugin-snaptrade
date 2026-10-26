@@ -44,7 +44,7 @@ from collections.abc import AsyncIterator
 
 import meridian
 from meridian import edge
-from meridian.roles import connectivity
+from meridian.roles import Latency, connectivity
 
 from .declaration import DECLARATION, PORT
 from .linking import Links, failure
@@ -173,6 +173,7 @@ async def run() -> None:
             )
             base = storage_base(syncer.raw)
             sent, _, originated = connectivity.trading_files(base)
+            latency = Latency(plugin)
             trader = Trader(
                 plugin,
                 lambda: venue if syncer.venue is not None else None,
@@ -186,8 +187,13 @@ async def run() -> None:
                 # The venue account codes its `ems` mapped on it, as the
                 # account scope delivers them (W11.22).
                 scope=lambda: links.scope,
+                # Contract v28 (ruling 518): each call to SnapTrade's trading
+                # API its round trip, a placement its acknowledgement, a fill
+                # its delay, reported every 10 seconds (ReportLatency).
+                latency=latency,
             )
             tasks.append(asyncio.create_task(trade(trader, syncer)))
+            tasks.append(asyncio.create_task(latency.run()))
         await stopped.wait()
         log.info("stopping")
         for task in tasks:
