@@ -1362,6 +1362,17 @@ for _name, _added in {
     "report_execution": {"multi_leg_reporting_type", "package_execution_id"},
 }.items():
     KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
+# open-meridian 0.33.2 to 0.33.4, known, and not used: no option chains (the
+# expiration filters and list_expirations above), no lake read narrowed by
+# field or path, and no job answer read page by page.
+for _name, _added in {
+    "list_quotes": {"expiration_from", "expiration_to", "fields"},
+    "list_series": {"paths"},
+    "list_statistics": {"expiration_from", "expiration_to", "fields"},
+    "list_trades": {"expiration_from", "expiration_to", "fields"},
+    "read_job_answer": {"cursor", "page_size"},
+}.items():
+    KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
 
 
 def test_the_pinned_sdk_has_no_operation_or_parameter_this_plugin_does_not_know() -> None:
