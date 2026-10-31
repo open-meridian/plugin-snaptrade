@@ -1340,6 +1340,13 @@ KNOWN_PARAMETERS.update(
         "release_lifecycle_event": {"acting_for", "event_id", "note"},
         "request_series_records": {"acting_for", "note", "series"},
         "resolve_company": {"as_of_ns", "company_id", "identifiers"},
+        # Known, and not used (open-meridian 0.33.4): no option chains.
+        "list_expirations": {
+            "expiration_from",
+            "expiration_to",
+            "instrument_type",
+            "underlying_id",
+        },
     }
 )
 for _name, _added in {

@@ -10,6 +10,8 @@ SDK 0.33.4: raw-record writes and enum conversion fixes (ruling 937).
 - **The pins:** open-meridian 0.33.1 to 0.33.4, and plugin-python:0.33.4 by
   tag and digest (`meridian plugin migrate --to 0.33.4`: only the pins move),
   and the pin README.md states beside them.
+- **`list_expirations` known, and not used** (new since 0.33.1): no option
+  chains here; the contract test's guard names it.
 
 ## 0.21.0
 
