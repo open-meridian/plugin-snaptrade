@@ -1340,6 +1340,13 @@ KNOWN_PARAMETERS.update(
         "release_lifecycle_event": {"acting_for", "event_id", "note"},
         "request_series_records": {"acting_for", "note", "series"},
         "resolve_company": {"as_of_ns", "company_id", "identifiers"},
+        # Known, and not used (open-meridian 0.33.4): no option chains.
+        "list_expirations": {
+            "expiration_from",
+            "expiration_to",
+            "instrument_type",
+            "underlying_id",
+        },
     }
 )
 for _name, _added in {
@@ -1353,6 +1360,17 @@ for _name, _added in {
         "statistics_recorded",
     },
     "report_execution": {"multi_leg_reporting_type", "package_execution_id"},
+}.items():
+    KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
+# open-meridian 0.33.2 to 0.33.4, known, and not used: no option chains (the
+# expiration filters and list_expirations above), no lake read narrowed by
+# field or path, and no job answer read page by page.
+for _name, _added in {
+    "list_quotes": {"expiration_from", "expiration_to", "fields"},
+    "list_series": {"paths"},
+    "list_statistics": {"expiration_from", "expiration_to", "fields"},
+    "list_trades": {"expiration_from", "expiration_to", "fields"},
+    "read_job_answer": {"cursor", "page_size"},
 }.items():
     KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
 
