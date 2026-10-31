@@ -3,6 +3,14 @@
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 
+## 0.21.1
+
+SDK 0.33.4: raw-record writes and enum conversion fixes (ruling 937).
+
+- **The pins:** open-meridian 0.33.1 to 0.33.4, and plugin-python:0.33.4 by
+  tag and digest (`meridian plugin migrate --to 0.33.4`: only the pins move),
+  and the pin README.md states beside them.
+
 ## 0.21.0
 
 Contract v28, on open-meridian 0.33.1 (plugin-common-v28), on core v28's

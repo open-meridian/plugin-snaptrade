@@ -16,7 +16,7 @@ each version ships with its declaration, which a deployment shows on the
 plugin's Documentation tab (contract v25). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.33.1`, which declares
+It is built on the SDK it pins, `open-meridian==0.33.4`, which declares
 contract v28: the Trader's session latency -- each trading call's round
 trip, a placement's acknowledgement, a fill's delay -- reported every 10
 seconds (rulings 515 and 518). Before it, contract v27 (meridian-design plans/the-v27-build; spec/the-contract-gaps-
@@ -1142,9 +1142,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.33.1`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.33.1`,
-by its digest. 0.33.1 is on PyPI and its base image on ghcr.io, which CI
+The SDK is pinned exactly, `open-meridian==0.33.4`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.33.4`,
+by its digest. 0.33.4 is on PyPI and its base image on ghcr.io, which CI
 installs.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'
