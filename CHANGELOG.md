@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.22.0
+
+On open-meridian 0.35.1, contract v29 (rulings 1003, 1004, 1005, 1009 to
+1029), on core v29's harness.
+
+- **One class for each role** (open-meridian 0.35: each role is one class).
+  `Custody` (custody: SnapTrade read every poll or sooner when woken, its
+  custody work -- sync.py, contract.py, linking.py -- making each act
+  through it, and reaching what is plugin-wide -- raw records, what is not
+  carried, its health, its stored records' moves -- on the connection) and
+  `Trading` (connectivity: the SDK's `Trader` over SnapTrade, its orders
+  polled at its own `poll_seconds`, its latency reported through it),
+  registered with `meridian.run`, which registers those the instance holds,
+  applies the first settings before anything is heard, serves the pages
+  and starts each class's `run` again after a backoff should it fail. The
+  first class started holds the first delivery of the plugin's links
+  before anything is heard, and follows the account scope after.
+- **The Trader's own subclass** takes no connection (0.35's `Trader` takes
+  none); migrate moved its callers and not its constructor.
+- **The SDK's surface known**: contract v29's factors (`list_factors`,
+  `record_factors`) and a fixed-income order's and execution's terms are
+  known, and not used.
+- **`meridian plugin migrate --to 0.35.1`** moved the pins and rewrote the
+  Trader's construction in the tests and an act on its connection. By hand:
+  the entry point, the custody role's class, the tests' hearing (`hear_row`,
+  one row as `Recorder.receive` heard it), and the e2e's desk (`portfolio`,
+  `oms`, `ems`, `reporting`) as role classes on `meridian.run_async`.
+- **The pins:** open-meridian 0.35.1 and plugin-python:0.35.1 by tag and
+  digest (`sha256:cdc92bc9...71a9b614`); core's runtime and harness
+  `1ae36f0` (merged as 3f99222, chart 0.1.339) by digest; meridian 0.1.56
+  in check.yaml.
+
 What each release of the SnapTrade plugin changed. Releases before 0.11.0
 are described in their commits (`git log`) and the README's "Depends on".
 

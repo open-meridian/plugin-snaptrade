@@ -1373,6 +1373,52 @@ for _name, _added in {
     "read_job_answer": {"cursor", "page_size"},
 }.items():
     KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
+# open-meridian 0.34 to 0.35.1 (contract v29), known, and not used: a
+# pool's factors, which a brokerage connection states none of.
+KNOWN_PARAMETERS["list_factors"] = {
+    "after_watermark",
+    "as_of_ns",
+    "cursor",
+    "from_date",
+    "page_size",
+    "sources",
+    "subjects",
+    "to_date",
+}
+KNOWN_PARAMETERS["record_factors"] = {"acting_for", "factors", "want_id"}
+# And a fixed-income order's and execution's terms (contract v29): a yield or
+# spread limit, its price basis, and the reporting a bond's trade carries,
+# none of which an order placed at SnapTrade states.
+for _name, _added in {
+    "propose_order": {
+        "benchmark_instrument_id",
+        "limit_spread_bps",
+        "limit_yield",
+        "price_basis",
+    },
+    "report_execution": {
+        "affiliate_back_to_back",
+        "capacity",
+        "contra_party_type",
+        "factor_used",
+        "list_offering_price_takedown",
+        "no_remuneration",
+        "parties",
+        "portfolio_trade",
+        "price_basis",
+        "primary_market",
+        "settlement_date_unknown",
+        "special_price",
+        "special_price_reason",
+        "stipulated",
+        "trade_time_precision",
+        "traded_flat",
+        "treasury_trade_modifier",
+        "weighted_average_price",
+        "yield_",
+    },
+}.items():
+    KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
 
 
 def test_the_pinned_sdk_has_no_operation_or_parameter_this_plugin_does_not_know() -> None:

@@ -39,16 +39,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import signal
 from collections.abc import AsyncIterator
+from typing import Any
 
 import meridian
 from meridian import edge
-from meridian.roles import Latency, connectivity
+from meridian.errors import NotRegistered
+from meridian.roles import Latency, connectivity, custody
 
 from .declaration import DECLARATION, PORT
 from .linking import Links, failure
-from .page import serve
+from .page import hold, pages
 from .raw import RawStore, storage_root
 from .settings import config_from
 from .sync import Syncer
@@ -64,18 +65,6 @@ from .trading import (
 log = logging.getLogger("snaptrade")
 
 
-async def watch_settings(
-    plugin: meridian.Plugin, syncer: Syncer, configured: asyncio.Event, wake: asyncio.Event
-) -> None:
-    """Apply each delivery of the settings, and read again at once."""
-    async for delivered in plugin.settings():
-        syncer.configure(config_from(delivered.values, delivered.missing_required))
-        configured.set()
-        wake.set()
-        # What is past its window, as the settings now say it (archive.py).
-        await syncer.tend()
-
-
 async def watch_links(scopes: AsyncIterator[meridian.AccountScope], links: Links) -> None:
     """Hold each delivery of the account scope, and so the plugin's links."""
     async for scope in scopes:
@@ -85,130 +74,216 @@ async def watch_links(scopes: AsyncIterator[meridian.AccountScope], links: Links
 async def follow_links(plugin: meridian.Plugin, links: Links) -> asyncio.Task[None]:
     """Hold the first delivery of the plugin's links, which comes at once, so
     a page served after this names every link and its account; then hold each
-    one after it in a task, which is returned."""
+    one after it in a task, which is returned (the pages' tests; the plugin
+    itself holds them in its first class's `run`, `Process.follow`)."""
     scopes = plugin.account_scope()
     await links.hold(await anext(scopes))
     return asyncio.create_task(watch_links(scopes, links))
 
 
-async def poll(syncer: Syncer, configured: asyncio.Event, wake: asyncio.Event) -> None:
-    """Read SnapTrade now, then every poll_seconds or sooner when woken."""
-    await configured.wait()
-    while True:
-        wake.clear()
-        try:
-            await syncer.run_once()
-        except meridian.MeridianError as failed:
-            # The sidecar refused something the read needed; say so and keep
-            # the schedule rather than spin.
-            log.warning("this read stopped: %s", failure(failed))
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(wake.wait(), timeout=syncer.config.poll_seconds)
+class Process:
+    """What the plugin's two role classes share: the syncer and the links the
+    pages read, the settings applied, and the account scope followed by the
+    first of them started."""
 
-
-async def trade(trader: Trader, syncer: Syncer) -> None:
-    """The connectivity role's work, beside the custody reads; a refusal it
-    meets is logged, and the custody reads go on (a deployment that has not
-    approved the role refuses its reads)."""
-    try:
-        await trader.run(
-            lambda: SYNTHETIC_POLL_SECONDS if syncer.config.synthetic else POLL_SECONDS
-        )
-    except meridian.MeridianError as failed:
-        log.warning("trading stopped: %s", failure(failed))
-
-
-async def run() -> None:
-    stopped = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for stop in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(stop, stopped.set)
-
-    port = PORT
-    # The version's whole declaration (declaration.py): its settings, its
-    # pages with the levels each serves, the accounts it names by SnapTrade's
-    # identifiers, what it does not carry, its storage and its documentation.
-    # A version registers exactly what it was uploaded with (contract v25).
-    async with await meridian.connect(declaration=DECLARATION) as plugin:
-        log.info(
-            "registered as %s, roles %s",
-            plugin.identity.instance_id,
-            ", ".join(plugin.identity.roles) or "none",
-        )
-        links = Links(plugin)
-        # The storage the deployment grants it (decisions/028), or the stand-in
-        # where none is mounted; and the links, which say whose activities to
-        # report (contract v14).
-        syncer = Syncer(
-            plugin,
+    def __init__(self) -> None:
+        self.roles: list[Any] = []
+        self.wake = asyncio.Event()
+        self.custody = Custody(self)
+        self.links = Links(self.custody)
+        # The storage the deployment grants it (decisions/028), or the
+        # stand-in where none is mounted; and the links, which say whose
+        # activities to report (contract v14). Its acts are made through the
+        # custody role's class (SDK 0.35).
+        self.syncer = Syncer(
+            self.custody,
             raw=RawStore(storage_root(), edge.storage_dir()),
             linked=lambda external_account_id: (
-                links.scope.link_of(external_account_id) is not None
+                self.links.scope.link_of(external_account_id) is not None
             ),
         )
-        configured, wake = asyncio.Event(), asyncio.Event()
-        following = await follow_links(plugin, links)
-        log.info("holding %d links to the deployment's accounts", len(links.scope.links))
-        page = serve(plugin, syncer, links, wake, port)
-        log.info("serving its pages on 127.0.0.1:%d", port)
-        tasks = [
-            following,
-            asyncio.create_task(watch_settings(plugin, syncer, configured, wake)),
-            asyncio.create_task(poll(syncer, configured, wake)),
-        ]
-        if "connectivity" in plugin.identity.roles:
-            # SnapTrade's trading API in the SDK's words, over the venue the
-            # settings last gave (None until they are given).
-            venue = TradingVenue(
-                plugin,
-                lambda: syncer.venue,
-                now=syncer.now,
-                raw=syncer.raw,
-                synthetic=lambda: syncer.config.synthetic,
-                secrets=lambda: (
-                    syncer.config.credentials.secrets()
-                    if syncer.config.credentials is not None
-                    else ()
-                ),
-            )
-            base = storage_base(syncer.raw)
-            sent, _, originated = connectivity.trading_files(base)
-            latency = Latency(plugin)
-            trader = Trader(
-                plugin,
-                lambda: venue if syncer.venue is not None else None,
-                now=syncer.now,
-                # The placements sent, the venue-originated orders and the
-                # charges reported, kept in storage so a restart sends and
-                # reports none twice (contract v23).
-                sent=connectivity.Sent(sent),
-                watched=connectivity.Watched(originated),
-                charged=charged(connectivity.charged_file(base)),
-                # The venue account codes its `ems` mapped on it, as the
-                # account scope delivers them (W11.22).
-                scope=lambda: links.scope,
-                # Contract v28 (ruling 518): each call to SnapTrade's trading
-                # API its round trip, a placement its acknowledgement, a fill
-                # its delay, reported every 10 seconds (ReportLatency).
-                latency=latency,
-            )
-            tasks.append(asyncio.create_task(trade(trader, syncer)))
-            tasks.append(asyncio.create_task(latency.run()))
-        await stopped.wait()
-        log.info("stopping")
-        for task in tasks:
-            task.cancel()
-        for task in tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        page.shutdown()
+        self.desk: Any = None
+        self.scopes: AsyncIterator[meridian.AccountScope] | None = None
+
+    def connection(self) -> meridian.Plugin:
+        """The connection, through any class registered on it."""
+        for role in self.roles:
+            try:
+                held: meridian.Plugin = role.plugin
+            except NotRegistered:
+                continue
+            return held
+        raise NotRegistered("no role class of the plugin is registered yet")
+
+    async def on_settings(self, delivered: Any) -> None:
+        """Each delivery of the settings, the first before any class starts:
+        applied, the custody reads woken, and what is past its window moved
+        as the settings now say it (archive.py)."""
+        self.syncer.configure(config_from(delivered.values, delivered.missing_required))
+        self.wake.set()
+        await self.syncer.tend()
+
+    async def started(self, role: Any) -> None:
+        """A class started: the first of them holds the first delivery of the
+        plugin's links, which comes at once, so a page names every link and
+        its account, and follows the scope from then on (`follow`)."""
+        if self.desk is not None:
+            return
+        self.desk = role
+        self.scopes = self.connection().account_scope()
+        await self.links.hold(await anext(self.scopes))
+        log.info("holding %d links to the deployment's accounts", len(self.links.scope.links))
+
+    async def follow(self, role: Any) -> None:
+        """Each delivery of the account scope after the first, held, where
+        `role` is the class that holds them; a stream that ends is raised,
+        so the class's work starts again, the scope asked anew."""
+        if role is not self.desk:
+            return
+        if self.scopes is None:
+            self.scopes = self.connection().account_scope()
+        scopes, self.scopes = self.scopes, None
+        await watch_links(scopes, self.links)
+        raise ConnectionError("the account scope's stream ended")
+
+
+class Custody(custody.Role):
+    """The custody role's class (open-meridian 0.35): reads SnapTrade every
+    poll, or sooner when woken (`run`), its custody work (sync.py,
+    contract.py, linking.py) making each act through it. What that work
+    reaches beyond the role -- raw records, what is not carried, the
+    plugin's health and its stored records' moves -- it reaches on the
+    connection, here."""
+
+    def __init__(self, process: Process) -> None:
+        self.process = process
+
+    async def on_start(self) -> None:
+        await self.process.started(self)
+
+    async def run(self) -> None:
+        await asyncio.gather(self._poll(), self.process.follow(self))
+
+    async def _poll(self) -> None:
+        """Read SnapTrade now, then every poll_seconds or sooner when woken."""
+        syncer, wake = self.process.syncer, self.process.wake
+        while True:
+            wake.clear()
+            try:
+                await syncer.run_once()
+            except meridian.MeridianError as failed:
+                # The sidecar refused something the read needed; say so and
+                # keep the schedule rather than spin.
+                log.warning("this read stopped: %s", failure(failed))
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(wake.wait(), timeout=syncer.config.poll_seconds)
+
+    # ── Plugin-wide, on the connection ───────────────────────────────────
+
+    def raw_record(self, key: str) -> Any:
+        return self.process.connection().raw_record(key)
+
+    def note_not_carried(self, scheme: str, name: str) -> None:
+        self.process.connection().note_not_carried(scheme, name)
+
+    async def report(self, **said: Any) -> Any:
+        return await self.process.connection().report(**said)
+
+    async def archive_unit(self, *args: Any, **kwargs: Any) -> Any:
+        return await self.process.connection().archive_unit(*args, **kwargs)
+
+    async def delete_unit(self, *args: Any, **kwargs: Any) -> Any:
+        return await self.process.connection().delete_unit(*args, **kwargs)
+
+    def find_record(self, key: str) -> Any:
+        return self.process.connection().find_record(key)
+
+    @property
+    def stored(self) -> Any:
+        return self.process.connection().stored
+
+    @stored.setter
+    def stored(self, value: Any) -> None:
+        self.process.connection().stored = value
+
+
+class Trading(Trader):
+    """The connectivity role's class: the SDK's Trader over SnapTrade's
+    trading API (trading.py), its orders polled at its own `poll_seconds`;
+    a refusal it meets is the Trader's to say, and the custody reads go on."""
+
+    def __init__(self, process: Process) -> None:
+        syncer = process.syncer
+        # SnapTrade's trading API in the SDK's words, over the venue the
+        # settings last gave (None until they are given).
+        venue = TradingVenue(
+            process.custody,
+            lambda: syncer.venue,
+            now=syncer.now,
+            raw=syncer.raw,
+            synthetic=lambda: syncer.config.synthetic,
+            secrets=lambda: (
+                syncer.config.credentials.secrets()
+                if syncer.config.credentials is not None
+                else ()
+            ),
+        )
+        base = storage_base(syncer.raw)
+        sent, _, originated = connectivity.trading_files(base)
+        super().__init__(
+            lambda: venue if syncer.venue is not None else None,
+            now=syncer.now,
+            # The placements sent, the venue-originated orders and the
+            # charges reported, kept in storage so a restart sends and
+            # reports none twice (contract v23).
+            sent=connectivity.Sent(sent),
+            watched=connectivity.Watched(originated),
+            charged=charged(connectivity.charged_file(base)),
+            # The venue account codes its `ems` mapped on it, as the account
+            # scope delivers them (W11.22).
+            scope=lambda: process.links.scope,
+            # Contract v28 (ruling 518): each call to SnapTrade's trading API
+            # its round trip, a placement its acknowledgement, a fill its
+            # delay, reported every 10 seconds (ReportLatency) through this
+            # class.
+            latency=Latency(),
+            poll_seconds=lambda: (
+                SYNTHETIC_POLL_SECONDS if syncer.config.synthetic else POLL_SECONDS
+            ),
+        )
+        self.process = process
+
+    async def on_start(self) -> None:
+        await self.process.started(self)
+        await super().on_start()
+
+    async def run(self) -> None:
+        latency = self.latency
+        assert latency is not None
+        await asyncio.gather(super().run(), latency.run(), self.process.follow(self))
 
 
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    asyncio.run(run())
+    process = Process()
+    # One class per role it may hold (SDK 0.35): `meridian.run` registers
+    # those the instance holds, applies the first settings, and starts each
+    # one's `run`, again after a backoff should it fail.
+    process.roles = [process.custody, Trading(process)]
+    hold(process.syncer, process.links, process.wake)
+    # The version's whole declaration (declaration.py): its settings, its
+    # pages with the levels each serves, the accounts it names by SnapTrade's
+    # identifiers, what it does not carry, its storage and its documentation.
+    # A version registers exactly what it was uploaded with (contract v25).
+    meridian.run(
+        declaration=DECLARATION,
+        roles=process.roles,
+        pages=pages,
+        port=PORT,
+        on_settings=process.on_settings,
+    )
 
 
 if __name__ == "__main__":

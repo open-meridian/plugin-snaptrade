@@ -36,6 +36,7 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from typing import Any
 
 import meridian
 from meridian.bounds import PLUGIN_FIGURE_WHY_LENGTH
@@ -172,7 +173,7 @@ class Syncer:
 
     def __init__(
         self,
-        plugin: meridian.Plugin,
+        plugin: Any,
         now: Callable[[], datetime] = utc_now,
         make_venue: Callable[[Config], Venue | None] | None = None,
         raw: RawStore | None = None,

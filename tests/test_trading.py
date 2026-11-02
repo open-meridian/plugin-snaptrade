@@ -39,6 +39,8 @@ from trading_cases import (
     usd,
 )
 
+from conftest import hear_row
+
 
 def test_the_ticker_is_snaptrades_own_symbol_first() -> None:
     record = instrument("AAPL")
@@ -557,7 +559,7 @@ def test_after_a_dk_a_later_fill_is_reported_on_no_placement_again() -> None:
             dk_reason=ops.DK_REASON_NO_MATCHING_ORDER,
         )
         recorder.answer("ExecutionRecorded", lambda _: ops.ExecutionRecordedEvent(execution=dk))
-        await recorder.receive(execution_recorded=rig.trader.on_execution)
+        await hear_row(recorder, "ExecutionRecorded", rig.trader.on_execution_recorded)
         await rig.trader.poll()
         assert not rig.trader.watched.orders[synthetic_orders.OUTSIDE_ID].adopted
 

@@ -10,8 +10,12 @@ Every page, route and tool names the roles it serves (`roles=`, contract
 v15): Connections for both, the rest for `custody`, whose pages read the
 custody role's accounts (`caller.read_for("custody")`), never the union.
 
-- `src/snaptrade/__main__.py` connects to the sidecar, declares the settings
-  (`settings.py`) and the pages, and serves them. `page.py` declares each page
+- `src/snaptrade/__main__.py` holds one class per role it may hold
+  (open-meridian 0.35): `Custody` (custody: the reads, every act of the
+  custody work made through it) and `Trading` (connectivity: the SDK's
+  `Trader` over SnapTrade), registered with `meridian.run`, which declares
+  the settings (`settings.py`) and the pages, applies the settings
+  (`Process.on_settings`) and serves the pages. `page.py` declares each page
   on the SDK's `meridian.Pages`, a view function and a Jinja2 template under
   `templates/` (built on the plugin UI kit the dashboard serves: its classes
   and components, never a colour, spacing or font of its own, and usable
@@ -32,7 +36,7 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   `sync.py` carries one read through; `linking.py` links an account to one of
   the deployment's, acting for the plugin admin on the Account links tab, and
   holds the plugin's links as `plugin.account_scope()` last delivered them
-  (`__main__` holds the first before serving the pages). An account is
+  (`__main__`'s first class started holds the first before anything is heard). An account is
   linked, naming its account, or not linked: never guess a third state from
   what a read recorded, and never store the links. A statement names its
   external account and institution, and one for an account nothing links is

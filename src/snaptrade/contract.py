@@ -144,7 +144,10 @@ def _identifiers(holding: Holding) -> list[meridian.Identifier]:
 class Recorder:
     """Sends what the normaliser made through the SDK's typed operations."""
 
-    def __init__(self, plugin: meridian.Plugin) -> None:
+    def __init__(self, plugin: Any) -> None:
+        # The custody role's object, its acts made through it and the raw
+        # records on its connection (SDK 0.35; a test's stand-in answers the
+        # same).
         self._plugin = plugin
 
     async def report_accounts(self, accounts: Sequence[ExternalAccount]) -> None:
