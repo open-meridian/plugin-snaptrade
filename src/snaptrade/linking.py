@@ -36,6 +36,7 @@ import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import meridian
 from meridian.plugin.v1 import operations_pb2 as ops
@@ -139,7 +140,9 @@ class Links:
     """The plugin's links as its account scope last gave them, and links sent
     for the admin viewing the page."""
 
-    def __init__(self, plugin: meridian.Plugin, settle_seconds: float = SETTLE_SECONDS) -> None:
+    def __init__(self, plugin: Any, settle_seconds: float = SETTLE_SECONDS) -> None:
+        # The custody role's object, its acts made through it (SDK 0.35;
+        # a test's stand-in answers the same).
         self._plugin = plugin
         self._settle = settle_seconds
         self._scope = meridian.AccountScope()
@@ -211,7 +214,7 @@ class Links:
             acting_for=acting_for,
         )
         await self._settled(external_account_id, linked.account_id)
-        return linked.account_id
+        return str(linked.account_id)
 
     async def link_several(
         self, acting_for: str, pairs: Sequence[tuple[str, str]]

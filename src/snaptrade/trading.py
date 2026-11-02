@@ -632,15 +632,12 @@ class Trader(connectivity.Trader):
 
     def __init__(
         self,
-        plugin: Any,
         venue: Callable[[], TradingVenue | None],
         **settings: Any,
     ) -> None:
         settings.setdefault("market_zone", UTC)
         # The venue's calls are async, which the Trader awaits (0.31.0).
-        super().__init__(
-            plugin, cast(Callable[[], connectivity.Venue | None], venue), **settings
-        )
+        super().__init__(cast(Callable[[], connectivity.Venue | None], venue), **settings)
         self._trading_venue = venue
 
     def trading_on(self, code: str) -> bool:
@@ -661,7 +658,7 @@ class Trader(connectivity.Trader):
         await super().on_queued(placement, order)
 
     async def _order_named(self, placement: ops.Placement) -> ops.Order | None:
-        listed = await self._plugin.list_orders(account_id=placement.account_id)
+        listed = await self.list_orders(account_id=placement.account_id)
         for order in listed.orders:
             if order.order_id == placement.order_id:
                 found: ops.Order = order

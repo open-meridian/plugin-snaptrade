@@ -27,7 +27,7 @@ from snaptrade.synthetic import SyntheticVenue
 from snaptrade.synthetic_orders import SyntheticTrading
 from snaptrade.trading import Trader, TradingVenue, charged
 
-from conftest import NOW, clock
+from conftest import NOW, clock, hear_row
 
 Producer = Callable[[Recorder], Awaitable[None]]
 
@@ -187,15 +187,16 @@ class Rig:
             raw=self.raw,
             synthetic=lambda: True,
         )
-        trader = Trader(
-            self.recorder,
-            lambda: self.trading_venue,
-            now=clock(NOW),
-            sent=self.sent,
-            scope=lambda: self.scope,
-            watched=Watched(self.watched / "originated.json" if self.watched else None),
-            charged=charged(self.watched / "charged.json" if self.watched else None),
-            latency=self.latency,
+        trader = self.recorder.bind(
+            Trader(
+                lambda: self.trading_venue,
+                now=clock(NOW),
+                sent=self.sent,
+                scope=lambda: self.scope,
+                watched=Watched(self.watched / "originated.json" if self.watched else None),
+                charged=charged(self.watched / "charged.json" if self.watched else None),
+                latency=self.latency,
+            )
         )
         trader.started.set()
         return trader
@@ -234,7 +235,7 @@ class Rig:
             "PlacementUpdated",
             lambda _: [ops.PlacementUpdatedEvent(placement=each) for each in placements],
         )
-        await self.recorder.receive(placement_updated=self.trader.on_placement)
+        await hear_row(self.recorder, "PlacementUpdated", self.trader.on_placement_updated)
 
     async def instruct(
         self, value: ops.TradingInstructionValue, *, instance: str = "snaptrade"
@@ -248,7 +249,11 @@ class Rig:
             "TradingInstructionChanged",
             lambda _: ops.TradingInstructionChangedEvent(instruction=instruction),
         )
-        await self.recorder.receive(trading_instruction_changed=self.trader.on_instruction)
+        await hear_row(
+            self.recorder,
+            "TradingInstructionChanged",
+            self.trader.on_trading_instruction_changed,
+        )
 
 
 def settled() -> ops.ComputeDateResult:
@@ -312,7 +317,7 @@ async def accept(rig: Rig, execution_id: str = "EXE-1", quantity: str = "1") -> 
     rig.recorder.answer(
         "ExecutionRecorded", lambda _: ops.ExecutionRecordedEvent(execution=matched)
     )
-    await rig.recorder.receive(execution_recorded=rig.trader.on_execution)
+    await hear_row(rig.recorder, "ExecutionRecorded", rig.trader.on_execution_recorded)
 
 
 async def accepted_then_filled(recorder: Recorder) -> None:

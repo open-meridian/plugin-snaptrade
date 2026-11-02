@@ -31,7 +31,7 @@ declared defaults filled in.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
@@ -347,3 +347,10 @@ def sidecar() -> Sidecar:
 
 def clock(moment: datetime = NOW) -> Callable[[], datetime]:
     return lambda: moment
+
+
+async def hear_row(recorder: Any, row: str, handler: Callable[[Any], Awaitable[None]]) -> None:
+    """One row the recorder answers, handed to `handler` alone -- as
+    `Recorder.receive(<row>=handler)` did before open-meridian 0.35, whose
+    `Recorder.hear(role)` hands a role class every row it hears."""
+    await recorder._hear({row: handler})
