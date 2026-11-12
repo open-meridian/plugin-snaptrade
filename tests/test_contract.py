@@ -1419,6 +1419,15 @@ for _name, _added in {
     },
 }.items():
     KNOWN_PARAMETERS[_name] = KNOWN_PARAMETERS[_name] | _added
+# open-meridian 0.36.0 (contract 30), known, and not used: the source
+# priorities a lake-reading role is entitled to read (ruling 454), which
+# custody and connectivity read nothing through.
+KNOWN_PARAMETERS["list_source_priorities"] = set()
+# And an event contract's terms stated at its resolve (1035), which no
+# brokerage holding names.
+KNOWN_PARAMETERS["resolve_identifier"] = KNOWN_PARAMETERS["resolve_identifier"] | {
+    "stated_binary_event_contract"
+}
 
 
 def test_the_pinned_sdk_has_no_operation_or_parameter_this_plugin_does_not_know() -> None:

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.23.0
+
+On open-meridian 0.36.0, contract 30, on core aae501d's harness (chart
+0.1.538); `meridian` 0.1.60 in the check. What the plugin holds and trades
+is unchanged.
+
+- **The pins alone**: `meridian plugin migrate --to 0.36.0` (0.35.1 to
+  0.36.0, each step only the pins for this plugin) moved open-meridian, the
+  base image by digest and `meridian` 0.1.60; core's runtime and harness
+  images moved to `aae501d` by hand, by digest. The README's pin lines
+  follow.
+- **Nothing to declare from contract 30's catalogue**: the plugin holds
+  custody and connectivity, no `data` role and no dataset, so it has no
+  `terms_and_pricing`, `gap_recovery` or `sessions_calendar_id`; it divides
+  no subjects, so `most_shards` is left unset.
+- **Row keys** (the lake's rule 5, ruled 2026-11-12): the plugin records no
+  lake row -- custody's statements, positions and activities and
+  connectivity's placements are book records -- so no case.
+- **The SDK's new operations, known and not used**
+  (`tests/test_contract.py`): `list_source_priorities` (ruling 454; custody
+  and connectivity read nothing through it) and `resolve_identifier`'s
+  `stated_binary_event_contract` (1035; no brokerage holding names one).
+- Migrate's `unregistered-role-object` findings are page and history
+  records (`records.*Read`, `history.Activities`), built as answers, not
+  role classes: nothing to do.
+
 ## 0.22.0
 
 On open-meridian 0.35.1, contract v29 (rulings 1003, 1004, 1005, 1009 to
