@@ -30,6 +30,8 @@ never rolled back below it.
   acknowledged; `report_charge`'s `idempotency_key` known; the stand-in
   sidecar's archive moves one loop per run, as the SDK holds them.
 
+SDK 0.37.1: a raw record kept from two threads at once waits instead of being dropped.
+
 ## 0.23.0
 
 On open-meridian 0.36.0, contract 30, on core aae501d's harness (chart

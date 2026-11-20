@@ -16,7 +16,7 @@ each version ships with its declaration, which a deployment shows on the
 plugin's Documentation tab (contract v25). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.37.0`, which declares
+It is built on the SDK it pins, `open-meridian==0.37.1`, which declares
 contract 30 (0.24.0: its storage read once registered, on a shard of its
 instance the shard's own folder, and each placement sent at most once across
 a takeover; 0.23.0: the pins alone). From 0.22.0,
@@ -1148,7 +1148,7 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.37.0`, and the `Dockerfile` and
+The SDK is pinned exactly, `open-meridian==0.37.1`, and the `Dockerfile` and
 `Makefile` build on the base image of the same version, `plugin-python:0.37.0`,
 by its digest. 0.37.0 is on PyPI and its base image on ghcr.io, which CI
 installs.
