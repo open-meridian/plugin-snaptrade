@@ -16,8 +16,10 @@ each version ships with its declaration, which a deployment shows on the
 plugin's Documentation tab (contract v25). How a plugin
 like it is built is documented at [open-meridian.dev](https://open-meridian.dev).
 
-It is built on the SDK it pins, `open-meridian==0.36.0`, which declares
-contract 30 (0.23.0: the pins alone, nothing it calls changed). From 0.22.0,
+It is built on the SDK it pins, `open-meridian==0.37.0`, which declares
+contract 30 (0.24.0: its storage read once registered, on a shard of its
+instance the shard's own folder, and each placement sent at most once across
+a takeover; 0.23.0: the pins alone). From 0.22.0,
 contract v29: its work is one class for each role it holds --
 custody's `Custody`, connectivity's `Trading` (the SDK's `Trader`) --
 registered with `meridian.run`. Before it, contract v28: the Trader's session latency -- each trading call's round
@@ -244,8 +246,9 @@ owner's alone, manual, later.
   on the order's placement, or on no placement for an order placed in the
   broker's own app (below). Each is read for ten reads after the order
   ended or last filled, one read of the account's activities a poll, and
-  reported once, noted in the plugin's storage (`trading/charged.json`),
-  since a charge carries no idempotency key. A `FEE` activity on a filled
+  reported once, noted in the plugin's storage (`trading/charged.json`, each
+  a marker of its own beside it from 0.24.0), and from 0.24.0 under its key
+  (`charge:<activity>|<placement>`), which the book records once. A `FEE` activity on a filled
   order, or naming no order the plugin knows, is no charge here; custody
   reports every activity to the street as it stands.
 - **The firm's controls.** It reads the trading instructions in force on
@@ -1145,9 +1148,9 @@ else from Open Meridian, plus SnapTrade's official Python SDK
 (`snaptrade-python-sdk`, pinned exactly), which only `src/snaptrade/venue.py`
 imports.
 
-The SDK is pinned exactly, `open-meridian==0.36.0`, and the `Dockerfile` and
-`Makefile` build on the base image of the same version, `plugin-python:0.36.0`,
-by its digest. 0.36.0 is on PyPI and its base image on ghcr.io, which CI
+The SDK is pinned exactly, `open-meridian==0.37.0`, and the `Dockerfile` and
+`Makefile` build on the base image of the same version, `plugin-python:0.37.0`,
+by its digest. 0.37.0 is on PyPI and its base image on ghcr.io, which CI
 installs.
 Where the sibling `meridian-python` checkout carries exactly that version,
 one not yet published, the `Makefile` builds from it (`SDK_REPO`): the tests'

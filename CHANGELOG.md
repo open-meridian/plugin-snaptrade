@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.24.0
+
+On open-meridian 0.37.0 (`meridian plugin migrate --to 0.37.0`: the SDK,
+the base image by digest and `meridian` 0.1.61 in the check). A minor
+version: what it keeps in storage changes form, and an instance on it is
+never rolled back below it.
+
+- **Storage read once registered.** The raw records and the simulated
+  brokerage's orders were found, and the Trader's files read, when the
+  process started, before it registered; on an instance run as shards or
+  with a standby pod that is the storage's root, which the SDK now refuses.
+  The raw records' place is set at the first settings, after Register (the
+  shard's own folder), and afresh when the plugin is registered again; the
+  SDK's Trader reads its own files on start (`trading/sent`, `enabled.json`,
+  `originated.json`, `charged.json`), each placement sent noted as a marker
+  of its own, so it is sent at most once across a takeover.
+- **Trading enabled is kept in storage** (`trading/enabled.json`), as every
+  other trading plugin's is, and survives a restart. Whether an account
+  trades is still its SnapTrade connection's access (Enable trading
+  reconnects it with trading access).
+- **The charges 0.18.0 and earlier noted** (`<activity>:<placement>`) are
+  written once in the SDK's words (`<activity>|<placement>`) in
+  `trading/charged.json`, on the first start after the upgrade, before the
+  SDK's Trader reads the file itself: none is reported twice. The
+  `charged()` wrapper that noted them again on every start is gone.
+- **Tests on 0.37.0**: the SDK says an unknown outcome resolved once the
+  venue's answer shows it (`PLACEMENT_EVENT_OUTCOME_RESOLVED`), then
+  acknowledged; `report_charge`'s `idempotency_key` known; the stand-in
+  sidecar's archive moves one loop per run, as the SDK holds them.
+
 ## 0.23.0
 
 On open-meridian 0.36.0, contract 30, on core aae501d's harness (chart

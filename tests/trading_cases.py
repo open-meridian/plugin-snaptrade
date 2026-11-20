@@ -25,7 +25,7 @@ from snaptrade import synthetic
 from snaptrade.raw import RawStore
 from snaptrade.synthetic import SyntheticVenue
 from snaptrade.synthetic_orders import SyntheticTrading
-from snaptrade.trading import Trader, TradingVenue, charged
+from snaptrade.trading import Trader, TradingVenue, convert_charge_notes
 
 from conftest import NOW, clock, hear_row
 
@@ -187,6 +187,10 @@ class Rig:
             raw=self.raw,
             synthetic=lambda: True,
         )
+        # The charges 0.18.0 and earlier noted, converted once as the
+        # plugin's start does, before the SDK's Trader reads them.
+        charges = self.watched / "charged.json" if self.watched else None
+        convert_charge_notes(charges)
         trader = self.recorder.bind(
             Trader(
                 lambda: self.trading_venue,
@@ -194,7 +198,7 @@ class Rig:
                 sent=self.sent,
                 scope=lambda: self.scope,
                 watched=Watched(self.watched / "originated.json" if self.watched else None),
-                charged=charged(self.watched / "charged.json" if self.watched else None),
+                charged=Sent(charges),
                 latency=self.latency,
             )
         )
