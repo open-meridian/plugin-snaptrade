@@ -629,6 +629,15 @@ class RawStore:
         # safe to show (the error's type alone).
         self.failure = ""
 
+    def open(self, root: Path, storage: Path | None) -> None:
+        """Its records under `root` in `storage`, the storage the deployment
+        grants once the plugin registered (open-meridian 0.37.0: on a shard
+        of its instance, the shard's own folder), what it remembered of the
+        last read afresh."""
+        self.root, self.storage = root, storage
+        self._reach = None
+        self._ledgers = {}
+
     # ── Where things are ────────────────────────────────────────────────
 
     def _directory(self, external_account_id: str) -> Path:

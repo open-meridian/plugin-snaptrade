@@ -32,6 +32,15 @@ force, and publishes what SnapTrade offers per account, its environment live
 Everything goes through the sidecar. The SnapTrade credentials arrive as the
 plugin's own secret settings, set by an admin of the plugin in the dashboard,
 and are never logged, shown or sent anywhere but SnapTrade.
+
+From 0.24.0 (open-meridian 0.37.0) its storage is read once registered,
+before the first settings are applied (`Process.open_storage`) -- on an
+instance run as shards or with a standby pod the shard's own folder, known
+only then -- and read afresh each time it is registered again: the raw
+records, the simulated brokerage's orders, and the Trader's files, which
+the SDK's Trader reads itself on start (`trading/sent`, `enabled.json`,
+`originated.json`, `charged.json`), the charges 0.18.0 and earlier noted
+converted once before it does (`convert_charge_notes`).
 """
 
 from __future__ import annotations
@@ -50,7 +59,7 @@ from meridian.roles import Latency, connectivity, custody
 from .declaration import DECLARATION, PORT
 from .linking import Links, failure
 from .page import hold, pages
-from .raw import RawStore, storage_root
+from .raw import STAND_IN, RawStore
 from .settings import config_from
 from .sync import Syncer
 from .trading import (
@@ -58,8 +67,7 @@ from .trading import (
     SYNTHETIC_POLL_SECONDS,
     Trader,
     TradingVenue,
-    charged,
-    storage_base,
+    convert_charge_notes,
 )
 
 log = logging.getLogger("snaptrade")
@@ -91,13 +99,15 @@ class Process:
         self.wake = asyncio.Event()
         self.custody = Custody(self)
         self.links = Links(self.custody)
-        # The storage the deployment grants it (decisions/028), or the
-        # stand-in where none is mounted; and the links, which say whose
-        # activities to report (contract v14). Its acts are made through the
-        # custody role's class (SDK 0.35).
+        # The storage the deployment grants it (decisions/028), read once
+        # registered (`open_storage`), the stand-in until then and where
+        # none is mounted; and the links, which say whose activities to
+        # report (contract v14). Its acts are made through the custody
+        # role's class (SDK 0.35).
+        self.opened = False
         self.syncer = Syncer(
             self.custody,
-            raw=RawStore(storage_root(), edge.storage_dir()),
+            raw=RawStore(STAND_IN),
             linked=lambda external_account_id: (
                 self.links.scope.link_of(external_account_id) is not None
             ),
@@ -115,10 +125,30 @@ class Process:
             return held
         raise NotRegistered("no role class of the plugin is registered yet")
 
+    def open_storage(self) -> None:
+        """Its storage, read once registered -- on an instance run as shards
+        or with a standby pod, the shard's own folder (open-meridian 0.37.0)
+        -- at the first settings, which `meridian.run` delivers before any
+        class starts, and read afresh each time it is registered again. The
+        Trader reads its own files on start."""
+        if self.opened:
+            return
+        self.opened = True
+        self.syncer.open(edge.storage_dir())
+
+    def stopped(self) -> None:
+        """A class stopped -- its sidecar lost, or deposed, or the plugin
+        stopping: registered again, its storage is read afresh (it may be
+        another shard's), and the account scope held anew."""
+        self.opened = False
+        self.desk = None
+        self.scopes = None
+
     async def on_settings(self, delivered: Any) -> None:
         """Each delivery of the settings, the first before any class starts:
         applied, the custody reads woken, and what is past its window moved
         as the settings now say it (archive.py)."""
+        self.open_storage()
         self.syncer.configure(config_from(delivered.values, delivered.missing_required))
         self.wake.set()
         await self.syncer.tend()
@@ -127,6 +157,7 @@ class Process:
         """A class started: the first of them holds the first delivery of the
         plugin's links, which comes at once, so a page names every link and
         its account, and follows the scope from then on (`follow`)."""
+        self.open_storage()
         if self.desk is not None:
             return
         self.desk = role
@@ -160,6 +191,10 @@ class Custody(custody.Role):
 
     async def on_start(self) -> None:
         await self.process.started(self)
+
+    async def on_stop(self) -> None:
+        self.process.stopped()
+        await super().on_stop()
 
     async def run(self) -> None:
         await asyncio.gather(self._poll(), self.process.follow(self))
@@ -228,17 +263,13 @@ class Trading(Trader):
                 else ()
             ),
         )
-        base = storage_base(syncer.raw)
-        sent, _, originated = connectivity.trading_files(base)
+        # The placements sent, the accounts trading is enabled on, the
+        # venue-originated orders and the charges reported are read from its
+        # storage on start, once registered (the SDK's Trader, 0.37.0): a
+        # restart sends and reports none twice (contract v23).
         super().__init__(
             lambda: venue if syncer.venue is not None else None,
             now=syncer.now,
-            # The placements sent, the venue-originated orders and the
-            # charges reported, kept in storage so a restart sends and
-            # reports none twice (contract v23).
-            sent=connectivity.Sent(sent),
-            watched=connectivity.Watched(originated),
-            charged=charged(connectivity.charged_file(base)),
             # The venue account codes its `ems` mapped on it, as the account
             # scope delivers them (W11.22).
             scope=lambda: process.links.scope,
@@ -255,7 +286,14 @@ class Trading(Trader):
 
     async def on_start(self) -> None:
         await self.process.started(self)
+        # The charges 0.18.0 and earlier noted, in the SDK's words, before
+        # the Trader reads them (once: none is left to convert after).
+        convert_charge_notes(connectivity.charged_file(edge.storage_dir()))
         await super().on_start()
+
+    async def on_stop(self) -> None:
+        self.process.stopped()
+        await super().on_stop()
 
     async def run(self) -> None:
         latency = self.latency

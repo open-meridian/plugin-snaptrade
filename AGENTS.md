@@ -165,7 +165,7 @@ custody role's accounts (`caller.read_for("custody")`), never the union.
   and a charge only from a `FEE` activity naming an order of a placement
   that ended unfilled or, a commission (`FEE_KIND_COMMISSION`), from the
   `fee` of the `BUY` or `SELL` activity naming an order, each once
-  (the SDK's `charged`, in storage); holds every new send under a pause or a stop and
+  (the SDK's `charged`, in storage, read by the Trader itself on start); holds every new send under a pause or a stop and
   cancels at SnapTrade under a stop, naming the stop's entry; never sends
   the listing exchange as a place of execution. A connection is read-only
   until an admin of `connectivity` enables trading on it. **Tests and

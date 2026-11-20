@@ -1428,6 +1428,9 @@ KNOWN_PARAMETERS["list_source_priorities"] = set()
 KNOWN_PARAMETERS["resolve_identifier"] = KNOWN_PARAMETERS["resolve_identifier"] | {
     "stated_binary_event_contract"
 }
+# open-meridian 0.37.0: a charge reported under its key, which the SDK's
+# Trader gives each charge it reports (`charge:<charge>|<placement>`).
+KNOWN_PARAMETERS["report_charge"] = KNOWN_PARAMETERS["report_charge"] | {"idempotency_key"}
 
 
 def test_the_pinned_sdk_has_no_operation_or_parameter_this_plugin_does_not_know() -> None:

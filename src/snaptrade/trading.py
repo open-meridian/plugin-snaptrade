@@ -83,6 +83,8 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta, tzinfo
@@ -666,24 +668,44 @@ class Trader(connectivity.Trader):
         return None
 
 
-def charged(file: Path | None) -> connectivity.Sent:
-    """The charges reported, each once (contract v23), as the SDK notes them
-    (`<charge>|<placement>`); one noted by 0.18.0 and earlier
-    (`<activity>:<placement>`) is noted again as the SDK's, so an upgrade
-    reports none twice. SnapTrade's activity IDs hold no colon."""
-    held = connectivity.Sent(file)
-    for name in list(held):
-        if "|" in name:
-            continue
+def convert_charge_notes(file: Path | None) -> int:
+    """The charges reported that 0.18.0 and earlier noted in `file`
+    (`trading/charged.json`) as `<activity>:<placement>`, written once in the
+    SDK's words, `<charge>|<placement>`, so the SDK's Trader, reading the
+    file itself, reports none twice after an upgrade. Written whole and
+    renamed into place, and only where a name is left to convert: how many
+    were. SnapTrade's activity IDs hold no colon."""
+    if file is None:
+        return 0
+    try:
+        held = json.loads(file.read_text())
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(held, list):
+        return 0
+    names = [str(each) for each in held]
+    converted = 0
+    noted: list[str] = []
+    for name in names:
         activity, colon, placement = name.partition(":")
-        if colon and activity:
-            held.note(f"{activity}|{placement}")
-    return held
-
-
-def storage_base(raw: RawStore | None) -> Path | None:
-    """Where the trading files are kept: beside the raw records."""
-    return raw.root.parent if raw is not None else None
+        if "|" not in name and colon and activity:
+            name = f"{activity}|{placement}"
+            converted += 1
+        if name not in noted:
+            noted.append(name)
+    if not converted:
+        return 0
+    made, written = tempfile.mkstemp(dir=file.parent, suffix=".tmp")
+    try:
+        with os.fdopen(made, "w") as out:
+            json.dump(noted, out)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(written, file)
+    except BaseException:
+        Path(written).unlink(missing_ok=True)
+        raise
+    return converted
 
 
 __all__ = [
@@ -694,8 +716,7 @@ __all__ = [
     "Account",
     "Trader",
     "TradingVenue",
-    "charged",
+    "convert_charge_notes",
     "order_of",
     "orders_of",
-    "storage_base",
 ]

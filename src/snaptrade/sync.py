@@ -36,6 +36,7 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 import meridian
@@ -57,7 +58,7 @@ from .normalise import (
 )
 from .not_carried import seen
 from .plan_codes import changed_accounts
-from .raw import RawStore, Taken, activity_key, activity_taken, taken
+from .raw import STAND_IN, RawStore, Taken, activity_key, activity_taken, taken
 from .settings import Config
 from .synthetic import SyntheticVenue
 from .synthetic_orders import SyntheticTrading
@@ -212,6 +213,18 @@ class Syncer:
     def now(self) -> datetime:
         """The time, by the clock this syncer reads by."""
         return self._now()
+
+    def open(self, storage: Path | None) -> None:
+        """Its storage, once the plugin registered (open-meridian 0.37.0: on
+        a shard of its instance, the shard's own folder): the raw records
+        kept there, and the simulated brokerage's orders beside them; the
+        stand-in where none is granted."""
+        if self.raw is None:
+            return
+        self.raw.open(storage / "raw-responses" if storage is not None else STAND_IN, storage)
+        self._synthetic_trading = SyntheticTrading(
+            self._now, self.raw.root.parent / "synthetic-venue" / "orders.json"
+        )
 
     def keep_history(self, one: Taken) -> str:
         """An account's history read on its own (history.py), kept as any

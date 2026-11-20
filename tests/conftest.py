@@ -121,6 +121,7 @@ class Sidecar(Operations):
         self._settings_now: dict[str, Any] | None = None
         self._stored: tuple[sidecar_pb2.StoredSpan, ...] = ()
         self._mover: Any = None
+        self._mover_loop: asyncio.AbstractEventLoop | None = None
         self._stub = SimpleNamespace(RecordMove=self._record_move)
         # By external account ID, as the deployment holds them.
         self.links = {link.external_account_id: link for link in links}
@@ -287,7 +288,21 @@ class Sidecar(Operations):
     delete_unit = meridian.Plugin.delete_unit
     find_record = meridian.Plugin.find_record
     stored = meridian.Plugin.stored
-    _moves = meridian.Plugin._moves
+
+    def _moves(self) -> Any:
+        """The SDK's mover, one for each loop: each `asyncio.run` here is a
+        process of its own, and from open-meridian 0.37.0 the SDK holds a
+        plugin's moves to the one loop it registered on. A read outside any
+        loop (`find_record`) takes the last."""
+        loop: asyncio.AbstractEventLoop | None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = self._mover_loop
+        if self._mover_loop is not loop:
+            self._mover, self._mover_loop = None, loop
+        return meridian.Plugin._moves(cast(meridian.Plugin, self))
+
     # What the heartbeat carries: `stored`, each kind with the bytes the
     # SDK's index says it uses of the archive (StoredSpan.bytes).
     _stored_with_bytes = meridian.Plugin._stored_with_bytes
@@ -299,7 +314,10 @@ class Sidecar(Operations):
         return await call
 
     async def _record_move(
-        self, move: sidecar_pb2.RecordMoveRequest, metadata: Any = ()
+        self,
+        move: sidecar_pb2.RecordMoveRequest,
+        metadata: Any = (),
+        timeout: float | None = None,
     ) -> sidecar_pb2.RecordMoveReply:
         """A move, as the sidecar answers it: refused inside the hold, or a
         restore for nobody; else kept with its person."""

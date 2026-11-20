@@ -10,11 +10,13 @@ stands in for SnapTrade, the suites' recorder for the sidecar."""
 from __future__ import annotations
 
 import asyncio
+import json
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
+from meridian import edge
 from meridian.operations import as_decimal
 from meridian.plugin.v1 import operations_pb2 as ops
 from meridian.roles.connectivity import Sent, symbol_of
@@ -22,7 +24,7 @@ from meridian.suites import Recorder
 
 from snaptrade import synthetic, synthetic_orders
 from snaptrade.normalise import SOURCE
-from snaptrade.trading import ENVIRONMENT, charged
+from snaptrade.trading import ENVIRONMENT, convert_charge_notes
 from snaptrade.venue import OrderAsked, VenueError
 from trading_cases import (
     ACCEPTED,
@@ -98,7 +100,13 @@ def test_a_status_not_mapped_is_resolved_by_the_next_answer() -> None:
 
     asyncio.run(produce())
     events = [sent.event for sent in recorder.on("ReportPlacement")]
-    assert events == [ops.PLACEMENT_EVENT_OUTCOME_UNKNOWN, ops.PLACEMENT_EVENT_ACKNOWLEDGED]
+    # Said resolved once the venue's answer shows what became of it (the
+    # SDK's Trader, 0.37.0), then acknowledged.
+    assert events == [
+        ops.PLACEMENT_EVENT_OUTCOME_UNKNOWN,
+        ops.PLACEMENT_EVENT_OUTCOME_RESOLVED,
+        ops.PLACEMENT_EVENT_ACKNOWLEDGED,
+    ]
 
 
 def test_a_fill_waits_for_its_settlement_date_and_is_never_guessed(
@@ -723,15 +731,60 @@ def test_a_good_till_date_order_is_sent_with_its_orders_expire_date(
     assert acknowledged.event == ops.PLACEMENT_EVENT_ACKNOWLEDGED
 
 
-def test_the_charges_0_18_0_noted_are_never_reported_again(tmp_path: Path) -> None:
+def test_a_charge_0_18_0_noted_is_converted_once_and_charged_once(tmp_path: Path) -> None:
     """0.18.0 noted a charge as `<activity>:<placement>`, the SDK notes it as
-    `<charge>|<placement>`: an upgrade carries each over."""
+    `<charge>|<placement>`: on the first start after the upgrade the file is
+    written once in the SDK's words, which the SDK's Trader reads itself, and
+    the commission 0.18.0 reported is not reported again."""
+    recorder = Recorder("snaptrade")
+    held = placement(quantity="1")
+    # The commission on the synthetic brokerage's first order's BUY.
+    activity = "00000000-0000-4000-8000-e00000000001"
     file = tmp_path / "charged.json"
-    file.write_text('["00000000-0000-4000-8000-e00000000001:", "act-2:PLC-1"]')
-    held = charged(file)
-    assert "00000000-0000-4000-8000-e00000000001|" in held
-    assert "act-2|PLC-1" in held
-    assert "act-2|PLC-1" in charged(file), "kept in storage"
+    file.write_text(json.dumps([f"{activity}:{held.placement_id}", "act-2:", "act-3|PLC-3"]))
+
+    async def produce() -> None:
+        rig = Rig(recorder, mapped=(), watched=tmp_path)
+        converted = sorted(json.loads(file.read_text()))
+        assert converted == [f"{activity}|{held.placement_id}", "act-2|", "act-3|PLC-3"]
+        written = file.stat().st_mtime_ns
+        # Started again: nothing left to convert, the file left as it is.
+        rig.trader = rig.make()
+        assert convert_charge_notes(file) == 0
+        assert file.stat().st_mtime_ns == written
+        rig.holds(held)
+        await rig.hear(held)
+        await rig.trader.poll()
+        for each in rig.trading._held["activities"][synthetic.ALPACA_MARGIN]:
+            each["fee"] = "0.35"
+        await rig.trader.poll()
+        await rig.trader.poll()
+
+    asyncio.run(produce())
+    assert recorder.on("ReportCharge") == [], "reported by 0.18.0 already: never again"
+
+
+def test_trading_enabled_survives_a_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SDK's Trader keeps the accounts trading is enabled on in the
+    plugin's storage (`trading/enabled.json`, each a marker beside it), read
+    on start: a restart finds them."""
+    monkeypatch.setenv(edge.STORAGE_DIR, str(tmp_path))
+    recorder = Recorder("snaptrade")
+
+    async def produce() -> None:
+        rig = Rig(recorder)
+        await rig.trader.on_start()
+        await rig.trader.enable(ALPACA_CODE, {"by": "Rig Admin"})
+        # Started again.
+        rig.trader = rig.make()
+        assert ALPACA_CODE not in rig.trader.enabled, "read on start, once registered"
+        await rig.trader.on_start()
+        assert ALPACA_CODE in rig.trader.enabled
+
+    asyncio.run(produce())
+    assert (tmp_path / "trading" / "enabled" / ALPACA_CODE.replace(":", "%3A")).is_file()
 
 
 def test_the_commission_snaptrade_states_on_a_placements_fill_is_a_charge_on_it() -> None:
