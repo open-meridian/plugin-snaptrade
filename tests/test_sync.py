@@ -129,6 +129,63 @@ async def test_nothing_it_logs_or_reports_carries_a_credential(
         assert secret not in said
 
 
+class Described:
+    """The synthetic venue, its first position described as a broker writes
+    one, naming its ISIN and SEDOL; every call made to it noted."""
+
+    DESCRIPTION = "UBS GROUP AG ISIN #CH0244767585 SEDOL #BRJL176"
+
+    def __init__(self) -> None:
+        self._inner = SyntheticVenue(clock())
+        self.asked: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    async def positions(self, account_id: str) -> Any:
+        self.asked.append(("positions", (account_id,), {}))
+        answer = await self._inner.positions(account_id)
+        if answer.get("results"):
+            answer["results"][0]["instrument"]["description"] = self.DESCRIPTION
+        return answer
+
+    def __getattr__(self, name: str) -> Any:
+        found = getattr(self._inner, name)
+        if not callable(found):
+            return found
+
+        def noted(*args: Any, **kwargs: Any) -> Any:
+            self.asked.append((name, args, kwargs))
+            return found(*args, **kwargs)
+
+        return noted
+
+
+async def test_a_recorded_position_reports_its_figi() -> None:
+    sidecar = Sidecar()
+    running = syncer(sidecar)
+    running.configure(config_from({SYNTHETIC: True}))
+    await running.run_once()
+    resolves = sidecar.sent("ResolveIdentifier")
+    assert any(
+        (i.scheme, i.value) == ("figi", "BBG000B9XRY4") for r in resolves for i in r.identifiers
+    )
+
+
+async def test_identifiers_read_from_a_description_reach_only_the_deployment() -> None:
+    sidecar = Sidecar()
+    venue = Described()
+    running = syncer(sidecar, make_venue=lambda config: venue)
+    running.configure(config_from(GIVEN))
+    await running.run_once()
+    sent = [
+        (i.scheme, i.value) for r in sidecar.sent("ResolveIdentifier") for i in r.identifiers
+    ]
+    # Resolved within the deployment, through its sidecar ...
+    assert ("isin", "CH0244767585") in sent and ("sedol", "BRJL176") in sent
+    # ... and never sent to SnapTrade, the one other place the plugin reaches.
+    assert venue.asked
+    for code in ("CH0244767585", "BRJL176"):
+        assert code not in repr(venue.asked)
+
+
 class Held:
     """The synthetic venue, its connections held until `go` is set; `users`
     fails as nothing the read expects, when asked to."""

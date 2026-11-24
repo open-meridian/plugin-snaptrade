@@ -846,13 +846,25 @@ def position_holding(
     figi = _text(_dict(instrument.get("figi_instrument")).get("figi_code"))
     if figi:
         identifiers.append(Identifier("figi", figi))
+    # An ISIN, CUSIP or SEDOL the broker wrote into the description, each
+    # only where its check digit holds (security_ids.py); one that fails is
+    # dropped and said. Resolved within the deployment like the rest.
+    from .security_ids import from_description  # it names this module's Identifier
+
+    dropped: list[str] = []
+    identifiers.extend(from_description(_text(instrument.get("description")), dropped))
+    said.extend(
+        f"SnapTrade's description of {symbol or figi or kind or 'a position'} names "
+        f"{drop}; it is not sent"
+        for drop in dropped
+    )
     if symbol:
         # A ticker, or for an option its OCC symbol: SnapTrade's own symbol,
         # scoped to it until identifier schemes have agreed names.
         identifiers.append(Identifier("symbol", symbol, SOURCE))
     if not identifiers:
-        raise ValueError(f"a {kind or 'position'} with neither FIGI nor symbol")
-    named = symbol or figi
+        raise ValueError(f"a {kind or 'position'} with no FIGI, ISIN, CUSIP, SEDOL or symbol")
+    named = symbol or figi or identifiers[0].value
     quantity = to_decimal(position.get("units"), f"units of {named}")
     exchange = _text(instrument.get("exchange")).upper()
     stated = _currency(position.get("currency"))

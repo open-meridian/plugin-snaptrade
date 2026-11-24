@@ -332,6 +332,66 @@ def test_a_balance_with_no_cash_figure_is_no_row() -> None:
     assert cash_holding(balance("USD", None)) is None
 
 
+UBS = "UBS GROUP AG ISIN #CH0244767585 SEDOL #BRJL176"
+
+
+def test_a_position_reports_the_figi_snaptrade_states() -> None:
+    row, _ = held(
+        stock("AAPL", "1", instrument={"figi_instrument": {"figi_code": "BBG000B9XRY4"}})
+    )
+    assert Identifier("figi", "BBG000B9XRY4") in row.identifiers
+
+
+def test_a_position_reports_the_isin_and_sedol_its_description_names() -> None:
+    row, problems = held(
+        stock(
+            "UBS",
+            "100",
+            instrument={
+                "description": UBS,
+                "figi_instrument": {"figi_code": "BBG007936GV2"},
+            },
+        )
+    )
+    assert row.identifiers == (
+        Identifier("figi", "BBG007936GV2"),
+        Identifier("isin", "CH0244767585"),
+        Identifier("sedol", "BRJL176"),
+        Identifier("symbol", "UBS", "snaptrade"),
+    )
+    # The description is offered as SnapTrade wrote it.
+    assert row.description == UBS and problems == []
+
+
+def test_an_identifier_in_a_description_whose_check_fails_is_dropped_and_said() -> None:
+    row, problems = held(
+        stock("UBS", "100", instrument={"description": "UBS GROUP AG ISIN #CH0244767586"})
+    )
+    assert row.identifiers == (Identifier("symbol", "UBS", "snaptrade"),)
+    assert problems == [
+        "SnapTrade's description of UBS names the ISIN CH0244767586, whose check digit "
+        "does not hold; it is not sent"
+    ]
+
+
+def test_a_position_whose_description_names_no_identifier_is_unchanged() -> None:
+    row, problems = held(
+        stock(
+            "AAPL",
+            "1",
+            instrument={
+                "description": "Apple Inc",
+                "figi_instrument": {"figi_code": "BBG000B9XRY4"},
+            },
+        )
+    )
+    assert row.identifiers == (
+        Identifier("figi", "BBG000B9XRY4"),
+        Identifier("symbol", "AAPL", "snaptrade"),
+    )
+    assert row.description == "Apple Inc" and problems == []
+
+
 # ── Statements ───────────────────────────────────────────────────────────────
 
 
