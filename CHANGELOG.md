@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A position reports the ISIN, CUSIP or SEDOL its description names, each only where its check digit holds.
+
 ## 0.24.0
 
 On open-meridian 0.37.0 (`meridian plugin migrate --to 0.37.0`: the SDK,
